@@ -21,7 +21,7 @@ from a2a.types import (
     Task,
     Part
 )
-from remote_agent_connection import RemoteAgentConnections
+from .remote_agent_connection import RemoteAgentConnections
 from typing import Dict, Any, Optional, Union, List
 import asyncio
 import httpx

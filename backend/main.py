@@ -13,7 +13,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
-from a2a_host import A2AHost
+from core.a2a_host import A2AHost
 from auth.token_manager import get_current_user
 
 app = FastAPI(title="A2A Host Server", version="1.0.0")

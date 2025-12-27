@@ -13,7 +13,7 @@ export default function ChatPage() {
     const [showSettings, setShowSettings] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const user = authService.getUser();
-    const navigate = useNavigate();
+    // const navigate = useNavigate(); // Removed unused hook
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -40,8 +40,24 @@ export default function ChatPage() {
         setLoading(true);
 
         try {
-            const response = await apiClient.sendMessage(text, 'default', agentUrl);
-            setMessages(prev => [...prev, ...response.cards]);
+            // Use streaming API
+            const stream = apiClient.streamMessage(text, 'default', agentUrl);
+
+            for await (const chunk of stream) {
+                if (chunk.cards && Array.isArray(chunk.cards)) {
+                    setMessages(prev => {
+                        // Map existing cards to a Map for easy lookup
+                        const existingCards = new Map(prev.map(c => [c.id, c]));
+
+                        // Update or add new cards
+                        chunk.cards.forEach((card: A2UICard) => {
+                            existingCards.set(card.id, card);
+                        });
+
+                        return Array.from(existingCards.values());
+                    });
+                }
+            }
         } catch (error) {
             console.error('Error sending message:', error);
             setMessages(prev => [...prev, {

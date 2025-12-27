@@ -47,48 +47,68 @@ export const apiClient = {
     },
 
     /**
-     * Create WebSocket connection for streaming
+     * Send a message and stream the response via SSE over POST
      */
-    createStreamConnection(
-        onCard: (card: any) => void,
-        onComplete: () => void,
-        onError: (error: Error) => void
-    ): WebSocket {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(`${protocol}//${window.location.host}/api/stream`);
-
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-
-            if (data.type === 'card') {
-                onCard(data.data);
-            } else if (data.type === 'complete') {
-                onComplete();
-            } else if (data.type === 'error') {
-                onError(new Error(data.message));
-            }
-        };
-
-        ws.onerror = () => {
-            onError(new Error('WebSocket connection error'));
-        };
-
-        return ws;
-    },
-
-    /**
-     * Send message via WebSocket
-     */
-    sendStreamMessage(ws: WebSocket, text: string, sessionId: string = 'default') {
+    async *streamMessage(text: string, sessionId: string = 'default', agentUrl: string = 'http://localhost:8001'): AsyncGenerator<any, void, unknown> {
         const token = authService.getToken();
         if (!token) {
             throw new Error('Not authenticated');
         }
 
-        ws.send(JSON.stringify({
-            token,
-            text,
+        const request: ChatRequest = {
+            message: text,
+            agent_url: agentUrl,
             session_id: sessionId,
-        }));
+            use_push: false
+        };
+
+        const response = await fetch(`${API_BASE}/api/chat/stream`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify(request),
+        });
+
+        if (!response.ok) {
+            throw new Error(`API error: ${response.status}`);
+        }
+
+        if (!response.body) {
+            throw new Error('No response body');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                buffer += chunk;
+
+                // Process complete SSE events in buffer
+                const lines = buffer.split('\n\n');
+                buffer = lines.pop() || ''; // Keep the incomplete part
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const dataStr = line.slice(6);
+                        try {
+                            const data = JSON.parse(dataStr);
+                            yield data;
+                        } catch (e) {
+                            console.error('Error parsing SSE json:', e);
+                        }
+                    }
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
     },
 };
