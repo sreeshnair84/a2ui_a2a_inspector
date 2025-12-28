@@ -59,6 +59,10 @@ class A2UIGenerator:
          }
        }
        Usage: USE THIS when the agent asks the user for specific details (e.g. "What specs do you need?") to create a structured input form.
+       Examples:
+         - VM Form: Fields for CPU, RAM, OS.
+         - Web App Form: Fields for App Name, Runtime (Node.js/Python), Region.
+         - RBAC Form: Fields for Email, Role (Select), Scope.
     
     3. TicketCard: For displaying IT tickets.
        Properties: {"id": "t_id", "content": {"ticket_id": "#123", "title": "...", "status": "open", "priority": "high", ...}}
@@ -66,7 +70,8 @@ class A2UIGenerator:
     4. TableCard: For displaying lists of resources (VMs, Users).
        Properties: {"id": "tbl_id", "content": {"title": "...", "table": {"headers": [...], "rows": [...]}}}
     
-    5. Layouts: Column, Row.
+    4. TableCard: For displaying lists of resources (VMs, Users).
+       Properties: {"id": "tbl_id", "content": {"title": "...", "table": {"headers": [...], "rows": [...]}}}
     
     Output Format:
     Return ONLY a JSON object with this structure:
@@ -80,7 +85,7 @@ class A2UIGenerator:
     - Generate VALID JSON.
     - If the agent asks for information (e.g. "I need CPU and RAM"), GENERATE A FormCard.
     - If the agent lists items, GENERATE A TableCard.
-    - Always wrap components in a root Column if multiple components.
+    - Do NOT generate Column or Row components. Return a flat list of components (Text, Form, Table, etc.). The system will handle layout automatically.
     """
 
     USER_PROMPT_TEMPLATE = """Generate A2UI v0.8 components for this agent response:
@@ -177,11 +182,21 @@ Instructions:
             components = result.get("components", [])
             
             # Validate and ensure IDs
+            component_types = []
             for comp in components:
                 if "id" not in comp:
                     comp["id"] = f"gen_{uuid.uuid4()}"
+                
+                # Extract type for logging (v0.8 format {"Type": ...} or legacy)
+                c_type = "Unknown"
+                if "component" in comp:
+                     if isinstance(comp["component"], dict):
+                         c_type = list(comp["component"].keys())[0]
+                     else:
+                         c_type = str(comp["component"])
+                component_types.append(c_type)
                     
-            logger.info(f"Generated {len(components)} components")
+            logger.info(f"Generated {len(components)} components: {component_types}")
             return components
             
         except json.JSONDecodeError as e:
@@ -269,12 +284,13 @@ def get_generator(model: Optional[str] = None) -> A2UIGenerator:
     
     if _generator_instance is None or model is not None:
         from config import settings
-        model_to_use = model or settings.a2ui_generation_model
-        
-        # Ensure we don't accidentally use Gemini if key is missing
-        if "gemini" in model_to_use.lower() and not settings.gemini_api_key:
-             logger.warning(f"Model {model_to_use} requested for A2UI but no GEMINI_API_KEY. Defaulting to Cohere.")
-             model_to_use = "cohere/command-a-03-2025"
+        # Default to Gemini for speed if available, otherwise Cohere
+        if settings.gemini_api_key:
+             model_to_use = model or "gemini/gemini-2.0-flash-exp"
+             logger.info(f"Using Gemini Flash for A2UI generation (Speed Priority): {model_to_use}")
+        else:
+             model_to_use = model or "cohere/command-a-03-2025"
+             logger.info(f"Using Cohere for A2UI generation: {model_to_use}")
              
         _generator_instance = A2UIGenerator(model=model_to_use)
     

@@ -11,6 +11,7 @@ import uuid
 import json
 import asyncio
 import logging
+from typing import Dict, Any, List
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -71,6 +72,48 @@ if LLM_PROVIDER == "azure":
 
 from tools import tools_schema, available_functions
 
+# Session-based conversation memory
+session_memories: Dict[str, List[Dict[str, Any]]] = {}
+
+def get_session_id(context: RequestContext) -> str:
+    """Extract session ID from context."""
+    try:
+        logger.info(f"Attempting to extract session_id from context: {type(context)}")
+        
+        # Try to get from metadata
+        if hasattr(context, 'request') and hasattr(context.request, 'params'):
+            logger.info("Context has request.params")
+            if hasattr(context.request.params, 'message'):
+                logger.info("Context has request.params.message")
+                metadata = getattr(context.request.params.message, 'metadata', {})
+                logger.info(f"Message metadata: {metadata}")
+                if metadata and 'session_id' in metadata:
+                    session_id = metadata['session_id']
+                    logger.info(f"Found session_id in metadata: {session_id}")
+                    return session_id
+        
+        # Fallback to task_id
+        if hasattr(context, 'task_id'):
+            task_id = str(context.task_id)
+            logger.info(f"Using task_id as session_id: {task_id}")
+            return task_id
+    except Exception as e:
+        logger.error(f"Error extracting session_id: {e}", exc_info=True)
+    
+    # Last resort: generate a random ID
+    random_id = f"session_{uuid.uuid4().hex[:8]}"
+    logger.warning(f"Generating random session_id: {random_id}")
+    return random_id
+
+def load_conversation_history(session_id: str) -> List[Dict[str, Any]]:
+    """Load conversation history for a session."""
+    return session_memories.get(session_id, [])
+
+def save_conversation_history(session_id: str, messages: List[Dict[str, Any]]):
+    """Save conversation history for a session."""
+    # Keep only last 20 messages to prevent memory bloat
+    session_memories[session_id] = messages[-20:]
+
 class ITServiceAgentExecutor(AgentExecutor):
     """
     AgentExecutor for IT Service Management with Tool Support and Streaming.
@@ -108,19 +151,65 @@ OPERATIONAL GUIDELINES:
 
 SPECIFIC INSTRUCTIONS:
 - VM PROVISIONING:
-  - If a user asks to create a VM, you MUST obtain the following details: CPU Cores, RAM (GB), and OS Type.
-  - If details are missing, ASK the user for them, offering these DEFAULTS:
-    * CPU: 2 vCPU
-    * RAM: 4 GB
-    * OS: Ubuntu
-  - Example: "I can help with that. What specs do you need? (Default: 2 vCPU, 4GB RAM, Ubuntu)"
-  - Only call `vm_provisioning` once you have confirmed values for all arguments.
+  - If a user asks to create a VM, you MUST obtain: CPU Cores, RAM (GB), and OS Type.
+  - DEFAULTS: CPU: 2 vCPU, RAM: 4 GB, OS: Ubuntu.
+  - STEP 1: Call `validate_vm_provisioning` to check quota.
+  - STEP 2: If valid, call `vm_provisioning` to create.
+
+- WEB APP CREATION:
+  - You MUST obtain: App Name, Runtime Stack, and Region.
+  - DEFAULTS: Runtime: Node.js 18, Region: East US.
+  - STEP 1: Call `validate_web_app_creation` to check name availability.
+  - STEP 2: If available, call `create_web_app`.
+
+- RBAC ACCESS:
+  - You MUST obtain: User Email, Role, and Scope.
+  - STEP 1: Call `validate_rbac_request` to verify user/role.
+  - STEP 2: If valid, call `request_rbac_access`.
+
+- SAP ACCESS:
+  - You MUST obtain: System ID, Module, and Access Type.
+  - STEP 1: Call `validate_sap_request`.
+  - STEP 2: If valid, call `sap_access_request`.
+
+- GENERAL:
+  - ALWAYS VALIDATE intent/quota/availability before executing a creation/modification action.
+  - Only call tools when ALL required arguments are confirmed.
+  - If validation fails, report the error to the user and DO NOT proceed with creation.
+
+- HANDLING FORM SUBMISSIONS:
+  - The user may reply with "Form Submitted: {json_data}".
+  - Parse the JSON data to extract values.
+  - Map field keys (e.g., "field_cpu_cores" -> "cpu_cores", "field_app_name" -> "app_name").
+  - TRACK what information you already have from previous messages.
+  - If you receive partial information, ONLY ask for the MISSING fields.
+  - Example: If user provides app_name and runtime, but not region, ONLY ask for region.
+  - Once you have ALL required parameters, IMMEDIATELY call the validation tool.
+
+- MEMORY AND CONTEXT:
+  - Review the conversation history to see what the user has already told you.
+  - DO NOT ask for information that was already provided in previous messages.
+  - Combine information from multiple turns to build complete tool arguments.
 """
+        # Get session ID and load conversation history
+        session_id = get_session_id(context)
+        logger.info(f"Processing message for session: {session_id}")
         
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
-        ]
+        # Load existing conversation history
+        conversation_history = load_conversation_history(session_id)
+        
+        # Build messages array: system prompt + history + new user message
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add conversation history (skip system prompts from history)
+        for msg in conversation_history:
+            if msg.get("role") != "system":
+                messages.append(msg)
+        
+        # Add new user message
+        messages.append({"role": "user", "content": user_message})
+        
+        logger.info(f"Message history length: {len(messages)} (including system prompt)")
 
         # Loop for multiple turns (Tool calls)
         while True:
@@ -310,17 +399,13 @@ SPECIFIC INSTRUCTIONS:
                         raise e # Propagate other errors immediately
                 
                 
+                # Safeguard: If LLM returns empty content and no tool calls, provide default response
+                if not current_content and not tool_calls:
+                    logger.warning("LLM returned empty response. Providing default message.")
+                    current_content = "I've processed your request. Let me know if you need anything else!"
+                    completed_message["content"] = current_content
+                
                 messages.append(completed_message)
-
-                # Finalize the "Thinking" message for this turn - REMOVED redundant event
-                # if current_content:
-                #      logger.info("Sending Thinking Complete event.")
-                #      await event_queue.enqueue_event(Message(
-                #             message_id=turn_id,
-                #             role=Role.agent,
-                #             parts=[TextPart(text=current_content)],
-                #             metadata={"type": "thinking", "state": "complete"}
-                #         ))
 
                 # If no tool calls, we are done
                 if not tool_calls:
@@ -332,6 +417,10 @@ SPECIFIC INSTRUCTIONS:
                             metadata={"type": "answer", "state": "complete"}
                     ))
                     logger.info(f"Successfully enqueued final answer")
+                    
+                    # Save conversation history (exclude system prompt)
+                    save_conversation_history(session_id, [m for m in messages if m.get("role") != "system"])
+                    logger.info(f"Saved conversation history for session {session_id}")
                     break
                 
                 # 2. Execute Tools
@@ -397,6 +486,8 @@ SPECIFIC INSTRUCTIONS:
                     parts=[TextPart(text=f"I encountered an error: {str(e)}")],
                     metadata={"type": "error"}
                 ))
+                # Save partial conversation history even on error
+                save_conversation_history(session_id, [m for m in messages if m.get("role") != "system"])
                 break
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue):
