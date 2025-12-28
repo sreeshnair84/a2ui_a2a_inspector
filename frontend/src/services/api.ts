@@ -13,6 +13,19 @@ export interface ChatRequest {
     use_push?: boolean;
 }
 
+// Helper to handle API responses and auto-logout on 401
+const handleResponse = async (response: Response, errorMsg: string) => {
+    if (response.status === 401) {
+        authService.logout();
+        window.location.reload();
+        throw new Error('Session expired');
+    }
+    if (!response.ok) {
+        throw new Error(`${errorMsg}: ${response.status}`);
+    }
+    return response;
+};
+
 export const apiClient = {
     /**
      * Send a text message to the chat API
@@ -39,10 +52,7 @@ export const apiClient = {
             body: JSON.stringify(request),
         });
 
-        if (!response.ok) {
-            throw new Error(`API error: ${response.status}`);
-        }
-
+        await handleResponse(response, 'API error');
         return response.json();
     },
 
@@ -70,6 +80,12 @@ export const apiClient = {
             },
             body: JSON.stringify(request),
         });
+
+        if (response.status === 401) {
+            authService.logout();
+            window.location.reload();
+            throw new Error('Session expired');
+        }
 
         if (!response.ok) {
             throw new Error(`API error: ${response.status}`);
@@ -99,10 +115,12 @@ export const apiClient = {
                     if (line.startsWith('data: ')) {
                         const dataStr = line.slice(6);
                         try {
+                            console.log("SSE Received Raw:", dataStr);
                             const data = JSON.parse(dataStr);
+                            console.log("SSE Parsed:", data);
                             yield data;
                         } catch (e) {
-                            console.error('Error parsing SSE json:', e);
+                            console.error('Error parsing SSE json:', e, dataStr);
                         }
                     }
                 }
@@ -111,4 +129,120 @@ export const apiClient = {
             reader.releaseLock();
         }
     },
+
+    /**
+     * Upload a file
+     */
+    async uploadFile(file: File): Promise<any> {
+        const token = authService.getToken();
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`${API_BASE}/api/upload`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+            },
+            body: formData,
+        });
+
+        await handleResponse(response, 'Upload failed');
+        return response.json();
+    },
+
+    /**
+     * Get all chat sessions
+     */
+    async getSessions(): Promise<any[]> {
+        const token = authService.getToken();
+        if (!token) return [];
+
+        const response = await fetch(`${API_BASE}/api/sessions`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.status === 401) {
+            authService.logout();
+            // Don't reload here to avoid loops if needed, or return empty
+            return [];
+        }
+
+        if (!response.ok) throw new Error('Failed to fetch sessions');
+        return response.json();
+    },
+
+    /**
+     * Create a new chat session
+     */
+    async createSession(title: string = "New Chat"): Promise<any> {
+        const token = authService.getToken();
+        if (!token) throw new Error('Not authenticated');
+
+        const response = await fetch(`${API_BASE}/api/sessions?title=${encodeURIComponent(title)}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        await handleResponse(response, 'Failed to create session');
+        return response.json();
+    },
+
+    /**
+     * Get session history
+     */
+    async getSessionHistory(sessionId: string): Promise<any[]> {
+        const token = authService.getToken();
+        if (!token) return [];
+
+        const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.status === 401) {
+            authService.logout();
+            return [];
+        }
+
+        if (!response.ok) throw new Error('Failed to fetch history');
+        return response.json();
+    },
+
+    /**
+     * Delete a session
+     */
+    async deleteSession(sessionId: string): Promise<void> {
+        const token = authService.getToken();
+        if (!token) return;
+
+        const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        await handleResponse(response, 'Failed to delete session');
+    },
+
+    /**
+     * Update a session (e.g. rename)
+     */
+    async updateSession(sessionId: string, title: string): Promise<any> {
+        const token = authService.getToken();
+        if (!token) throw new Error('Not authenticated');
+
+        const response = await fetch(`${API_BASE}/api/sessions/${sessionId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ title })
+        });
+
+        await handleResponse(response, 'Failed to update session');
+        return response.json();
+    }
 };

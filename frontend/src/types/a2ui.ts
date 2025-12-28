@@ -1,117 +1,48 @@
+
 /**
- * A2UI Schema type definitions
+ * A2UI v0.9 Schema type definitions
+ * Based on A2UI Specification v0.9
  */
 
-export interface A2UICard {
-    type: string;
+export interface SurfaceUpdate {
+    components: ComponentDefinition[];
+}
+
+export interface ComponentDefinition {
     id: string;
-    content: any;
+    component: string;
+    text?: TextData;
+    children?: ChildrenData;
+    usageHint?: string;
+    [key: string]: any;
 }
 
-export interface FormField {
-    id: string;
-    type: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'email' | 'number' | 'date' | 'date_range';
-    label: string;
-    placeholder?: string;
-    required?: boolean;
-    options?: Array<{ value: string; label: string }>;
-    validation?: string;
-    min?: number;
-    max?: number;
-    default?: any;
-    maxLength?: number;
+export interface TextData {
+    literalString?: string;
+    [key: string]: any;
 }
 
-export interface FormAction {
-    id: string;
-    label: string;
-    type: 'primary' | 'secondary' | 'danger' | 'link';
-    action?: string;
+export interface ChildrenData {
+    explicitList?: string[];
+    [key: string]: any;
 }
 
-export interface FormCardContent {
-    title: string;
-    description?: string;
-    fields: FormField[];
-    actions: FormAction[];
+export interface DataModelUpdate {
+    data: any;
 }
 
-export interface TimelineEvent {
-    timestamp: string;
-    status: string;
-    actor?: string;
-    message?: string;
-}
-
-export interface TicketAction {
-    id: string;
-    label: string;
-    type: 'primary' | 'secondary' | 'danger' | 'link';
-    url?: string;
-    action?: string;
-}
-
-export interface TicketCardContent {
-    ticket_id: string;
-    title: string;
-    status: string;
-    priority: 'low' | 'medium' | 'high' | 'critical';
-    created_at: string;
-    created_by?: string;
-    assigned_to?: string;
-    estimated_completion?: string;
-    details: Record<string, any>;
-    timeline: TimelineEvent[];
-    actions: TicketAction[];
-    style?: Record<string, string>;
-}
-
-export interface StatusStep {
-    name: string;
-    status: 'pending' | 'in_progress' | 'complete' | 'failed';
-    duration?: string;
-}
-
-export interface StatusCardContent {
-    title: string;
-    status: 'pending' | 'in_progress' | 'complete' | 'failed';
-    progress?: number;
-    current_step?: string;
-    steps: StatusStep[];
+export interface A2UIEnvelope {
+    surfaceUpdate?: SurfaceUpdate;
+    dataModelUpdate?: DataModelUpdate;
     metadata?: Record<string, any>;
-    style?: Record<string, string>;
-}
-
-export interface TableData {
-    headers: string[];
-    rows: string[][];
-}
-
-export interface TableAction {
-    id: string;
-    label: string;
-    type: 'primary' | 'secondary' | 'danger' | 'link';
-    url?: string;
-    action?: string;
-}
-
-export interface TableCardContent {
-    title: string;
-    message?: string;
-    ticket_reference?: string;
-    table: TableData;
-    actions: TableAction[];
-    style?: Record<string, string>;
-}
-
-export interface TextCardContent {
-    text: string;
-    metadata?: Record<string, any>;
+    [key: string]: any;
 }
 
 export interface A2UIResponse {
-    cards: A2UICard[];
+    surfaceUpdate?: SurfaceUpdate;
     session_id: string;
-    timestamp: string;
+    timestamp?: string;
     metadata?: Record<string, any>;
+    // Legacy support (optional)
+    cards?: any[];
 }

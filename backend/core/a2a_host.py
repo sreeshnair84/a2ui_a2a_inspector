@@ -155,25 +155,29 @@ class A2AHost:
             params=params
         )
         
-        async for chunk in conn.stream_message(request):
-            # chunk is SendStreamingMessageResponse (RootModel)
-            
-            # Check for error
-            if hasattr(chunk.root, 'error') and chunk.root.error:
-                 logger.error(f"Streaming error: {chunk.root.error}")
-                 yield self.convert_to_a2ui({"output": {"text": f"Error: {chunk.root.error.message}"}})
-                 continue
+        try:
+            async for chunk in conn.stream_message(request):
+                # chunk is SendStreamingMessageResponse (RootModel)
+                
+                # Check for error in chunk
+                if hasattr(chunk.root, 'error') and chunk.root.error:
+                     logger.error(f"Streaming error: {chunk.root.error}")
+                     yield self.convert_error_to_a2ui(chunk.root.error)
+                     continue
 
-            # Check for result
-            if hasattr(chunk.root, 'result'):
-                yield self._process_response(chunk.root.result)
-            elif isinstance(chunk, (dict, str)):
-                 # Fallback if raw dict or other type
-                 yield self.convert_to_a2ui({"output": {"text": str(chunk)}})
-            else:
-                 # Unexpected type
-                 logger.warning(f"Unexpected chunk type: {type(chunk)}")
-                 yield self.convert_to_a2ui({"output": {"text": ""}})
+                # Check for result
+                if hasattr(chunk.root, 'result'):
+                    yield self._process_response(chunk.root.result)
+                elif isinstance(chunk, (dict, str)):
+                     # Fallback if raw dict or other type
+                     yield self.convert_to_a2ui({"output": {"text": str(chunk)}})
+                else:
+                     # Unexpected type
+                     logger.warning(f"Unexpected chunk type: {type(chunk)}")
+                     yield self.convert_to_a2ui({"output": {"text": ""}})
+        except Exception as e:
+            logger.error(f"Exception during streaming: {e}")
+            yield self.convert_error_to_a2ui(e)
 
     def _process_response(self, result: Any) -> Dict[str, Any]:
         """Convert A2A typed result to internal dict format for conversion."""
@@ -202,37 +206,74 @@ class A2AHost:
         # Fallback
         return {"output": {"text": str(result)}}
 
+    def convert_error_to_a2ui(self, error: Any) -> Dict[str, Any]:
+        """Convert an exception or error object to an A2UI envelope."""
+        error_text = str(error)
+        if hasattr(error, 'message'):
+            error_text = error.message
+
+        # Generate a unique ID for the error
+        error_id = f"error_{uuid.uuid4()}"
+        
+        # Create Envelope
+        return {
+            "surfaceUpdate": {
+                "components": [
+                    {
+                        "id": "root",
+                        "component": "Column",
+                        "children": {
+                            "explicitList": [error_id] 
+                        }
+                    },
+                    {
+                        "id": error_id,
+                        "component": "Text",
+                        "text": {
+                            "literalString": f"Error: {error_text}"
+                        },
+                        "usageHint": "error"
+                    }
+                ]
+            }
+        }
+
     def convert_to_a2ui(self, agent_response: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Convert agent response to A2UI JSON format.
+        Convert agent response to A2UI v0.9 Envelope format.
         """
-        # This mirrors the old logic but agent_response is now the Dict we produced in _process_response
-        
-        cards = []
-        
-        # If agent already returns A2UI format (via direct pass-through check)
-        # (Our _process_response produces 'output': {'text': ...} mostly)
-        
         output = agent_response.get("output", {})
+        text_content = ""
         
         if "text" in output:
-             cards.append({
-                "type": "text_card",
-                "id": "text_1",
-                "content": {
-                    "text": output["text"]
-                }
-            })
+            text_content = output["text"]
         else:
-             cards.append({
-                "type": "text_card",
-                "id": "text_1",
-                "content": {
-                    "text": str(output)
-                }
-            })
-            
-        return {
-            "cards": cards,
+            text_content = str(output)
+
+        # Generate unique IDs
+        msg_id = f"msg_{uuid.uuid4()}"
+        
+        # Create Adjacency List Envelope
+        envelope = {
+            "surfaceUpdate": {
+                "components": [
+                    {
+                        "id": msg_id,
+                        "component": "Text",
+                        "text": {
+                            "literalString": text_content
+                        }
+                    },
+                    {
+                        "id": "root",
+                        "component": "Column",
+                        "children": {
+                             "explicitList": [msg_id]
+                        }
+                    }
+                ]
+            },
             "metadata": agent_response.get("metadata", {})
         }
+            
+        return envelope
