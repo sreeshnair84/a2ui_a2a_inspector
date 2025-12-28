@@ -12,9 +12,15 @@
   "dependencies": {
     "@a2ui/lit": "^0.8.1",
     "axios": "^1.7.7",
+    "clsx": "^2.1.1",
+    "highlight.js": "^11.11.1",
+    "lucide-react": "^0.562.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^6.26.2",
+    "rehype-highlight": "^7.0.2",
+    "tailwind-merge": "^3.4.0",
     "zustand": "^5.0.1"
   },
   "devDependencies": {

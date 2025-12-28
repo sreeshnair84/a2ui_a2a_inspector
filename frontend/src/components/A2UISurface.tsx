@@ -1,5 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import '@a2ui/lit'; // Keeping import to ensure custom element is defined if needed later
+import { MessageBubble } from './Chat/MessageBubble';
+import { ThinkingBubble } from './Chat/ThinkingBubble';
+import { ArtifactCard } from './Chat/ArtifactCard';
 
 /**
  * React wrapper for A2UI Surface.
@@ -47,74 +50,63 @@ export const A2UISurface: React.FC<A2UISurfaceProps> = ({
 
         switch (comp.component) {
             case 'Text':
-                // Check metadata for role to style as User vs Agent
-                const isUser = comp.metadata?.role === 'user';
-
                 return (
-                    <div key={comp.id} className={`flex w-full mb-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`
-                            max-w-[80%] rounded-2xl px-5 py-3 text-sm shadow-sm
-                            ${isUser
-                                ? 'bg-indigo-600 text-white rounded-br-none'
-                                : 'bg-white text-gray-800 border border-gray-100 rounded-bl-none'}
-                        `}>
-                            <div className={`prose text-sm max-w-none break-words ${isUser ? 'prose-invert' : ''}`}>
-                                {comp.text?.literalString || comp.text?.markdown || (typeof comp.text === 'string' ? comp.text : JSON.stringify(comp.text))}
-                            </div>
-                        </div>
-                    </div>
+                    <MessageBubble
+                        key={comp.id}
+                        text={comp.text}
+                        role={comp.metadata?.role || 'agent'}
+                    />
                 );
 
             case 'Error':
                 return (
-                    <div key={comp.id} className="flex w-full mb-4 justify-start">
-                        <div className="max-w-[80%] rounded-2xl px-5 py-3 text-sm shadow-sm bg-red-50 text-red-700 border border-red-100 rounded-bl-none">
-                            <div className="flex items-center gap-2 mb-1 font-semibold">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                                System Error
-                            </div>
-                            <div className="break-words font-mono text-xs">
-                                {comp.error?.message || JSON.stringify(comp.error)}
-                            </div>
-                        </div>
-                    </div>
+                    <MessageBubble
+                        key={comp.id}
+                        role="system"
+                        error={comp.error}
+                    />
+                );
+
+            case 'Thinking':
+                return (
+                    <ThinkingBubble
+                        key={comp.id}
+                        content={comp.content || comp.text}
+                    />
+                );
+
+            case 'Artifact':
+                return (
+                    <ArtifactCard
+                        key={comp.id}
+                        title={comp.title || "Generated Artifact"}
+                        type={comp.artifactType || "file"}
+                        content={comp.content}
+                        language={comp.language}
+                        url={comp.url}
+                    />
                 );
 
             case 'Column':
                 return (
-                    <div key={comp.id} className="flex flex-col w-full">
+                    <div key={comp.id} className="flex flex-col w-full gap-2">
                         {(comp.children?.explicitList || []).map((childId: string) => renderComponent(childId))}
                     </div>
                 );
             case 'Row':
                 return (
-                    <div key={comp.id} className="flex flex-row gap-2 w-full">
+                    <div key={comp.id} className="flex flex-row gap-2 w-full flex-wrap">
                         {(comp.children?.explicitList || []).map((childId: string) => renderComponent(childId))}
                     </div>
                 );
             default:
-                // Check if it's a legacy card or just a fallback
+                // Legacy Card Support
                 if (comp.type && comp.type.endsWith('_card')) {
-                    // Legacy card support - Wrap in Bubble-ish container
                     if (comp.type === 'text_card') {
-                        return (
-                            <div key={comp.id} className="flex w-full mb-4 justify-start">
-                                <div className="max-w-[80%] rounded-2xl px-5 py-3 text-sm shadow-sm bg-white text-gray-800 border border-gray-100 rounded-bl-none">
-                                    <div className="prose text-sm text-gray-800 whitespace-pre-wrap">
-                                        {comp.content?.text || JSON.stringify(comp.content)}
-                                    </div>
-                                </div>
-                            </div>
-                        );
+                        return <MessageBubble key={comp.id} text={comp.content?.text} role="agent" />;
                     }
                     if (comp.type === 'exception_card') {
-                        return (
-                            <div key={comp.id} className="flex w-full mb-4 justify-start">
-                                <div className="max-w-[80%] rounded-2xl px-5 py-3 text-sm shadow-sm bg-red-50 text-red-700 border border-red-100 rounded-bl-none">
-                                    <strong>Error (Legacy):</strong> {comp.content?.text || JSON.stringify(comp.content)}
-                                </div>
-                            </div>
-                        );
+                        return <MessageBubble key={comp.id} error={comp.content?.text} role="system" />;
                     }
                 }
 
