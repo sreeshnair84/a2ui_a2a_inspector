@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect } from 'react';
 
-export function useSpeechRecognition() {
+export function useSpeechRecognition(language: string = 'en-US') {
     const [isListening, setIsListening] = useState(false);
     const [transcript, setTranscript] = useState('');
-    const [recognition, setRecognition] = useState<any>(null); // any because SpeechRecognition types might not be standard in all TS setups without dom lib custom
+    const [recognition, setRecognition] = useState<any>(null);
 
     useEffect(() => {
         const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -11,7 +11,7 @@ export function useSpeechRecognition() {
             const recog = new SpeechRecognition();
             recog.continuous = true;
             recog.interimResults = true;
-            recog.lang = 'en-US';
+            recog.lang = language; // Use the passed language
 
             recog.onresult = (event: any) => {
                 let currentTranscript = '';
@@ -37,11 +37,13 @@ export function useSpeechRecognition() {
 
             setRecognition(recog);
         }
-    }, []);
+    }, [language]); // Re-create if language changes
 
     const startListening = useCallback(() => {
         if (recognition) {
             try {
+                // Ensure lang is updated if relying on ref or recreation
+                recognition.lang = language;
                 recognition.start();
                 setIsListening(true);
                 setTranscript('');
@@ -51,7 +53,7 @@ export function useSpeechRecognition() {
         } else {
             alert("Speech Recognition is not supported in this browser.");
         }
-    }, [recognition]);
+    }, [recognition, language]);
 
     const stopListening = useCallback(() => {
         if (recognition) {

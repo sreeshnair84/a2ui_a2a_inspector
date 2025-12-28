@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { cn } from '../../utils';
 import { User, Bot, AlertCircle, ThumbsUp, ThumbsDown, Volume2, StopCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -12,14 +12,17 @@ interface MessageBubbleProps {
     error?: any;
     className?: string;
     onFeedback?: (type: 'up' | 'down') => void;
+    autoSpeak?: boolean;
+    selectedVoiceURI?: string;
 }
 
-export const MessageBubble = ({ text, role, error, className, onFeedback }: MessageBubbleProps) => {
+export const MessageBubble = ({ text, role, error, className, onFeedback, autoSpeak = false, selectedVoiceURI }: MessageBubbleProps) => {
     const isUser = role === 'user';
     const isError = !!error;
     const { speak, stop, isSpeaking } = useTextToSpeech();
+    const hasSpokenOnMount = useRef(false);
 
-    // Extract content safely
+    // ... content extraction ...
     let content = "";
     if (text) {
         if (typeof text === 'string') content = text;
@@ -30,13 +33,22 @@ export const MessageBubble = ({ text, role, error, className, onFeedback }: Mess
         content = error.message || JSON.stringify(error);
     }
 
+    // Auto-Speak Logic
+    useEffect(() => {
+        if (autoSpeak && !isUser && !isError && !hasSpokenOnMount.current && content) {
+            // Check if content is substantial enough to speak (not just "thinking...")
+            if (content.length > 2) {
+                speak(content, selectedVoiceURI);
+                hasSpokenOnMount.current = true;
+            }
+        }
+    }, [autoSpeak, content, isUser, isError, speak, selectedVoiceURI]);
+
     const handleSpeak = () => {
         if (isSpeaking) {
             stop();
         } else {
-            // Strip markdown chars roughly for speech if needed, but synthetic voices usually handle plain text well.
-            // For now passing raw text content.
-            speak(content);
+            speak(content, selectedVoiceURI);
         }
     };
 
@@ -77,10 +89,13 @@ export const MessageBubble = ({ text, role, error, className, onFeedback }: Mess
                         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
                                 onClick={handleSpeak}
-                                className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-gray-100 rounded-full transition-colors"
+                                className={cn(
+                                    "p-1.5 rounded-full transition-colors",
+                                    isSpeaking ? "text-indigo-600 bg-indigo-50" : "text-gray-400 hover:text-indigo-600 hover:bg-gray-100"
+                                )}
                                 title="Read Aloud"
                             >
-                                {isSpeaking ? <StopCircle size={14} className="text-indigo-600 animate-pulse" /> : <Volume2 size={14} />}
+                                {isSpeaking ? <StopCircle size={14} className="animate-pulse" /> : <Volume2 size={14} />}
                             </button>
                         </div>
                     )}

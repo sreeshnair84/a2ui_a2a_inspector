@@ -9,7 +9,7 @@ interface SidebarProps {
     currentSessionId: string | null;
     onSelectSession: (id: string) => void;
     onCreateSession: () => void;
-    onDeleteSession: (e: React.MouseEvent, id: string) => void;
+    onDeleteSession: (id: string) => void;
     isOpen: boolean;
     className?: string;
 }
@@ -40,11 +40,7 @@ export const Sidebar = ({
 
     const handleDelete = () => {
         if (sessionToDelete) {
-            // We need to pass a mock event or handle it differently mostly because the original prop expects an event.
-            // But simpler is to allow the prop to accept just ID or null event. 
-            // Ideally refactor parent to not need event, but for now:
-            const mockEvent = {} as React.MouseEvent;
-            onDeleteSession(mockEvent, sessionToDelete);
+            onDeleteSession(sessionToDelete);
         }
         setSessionToDelete(null);
     };

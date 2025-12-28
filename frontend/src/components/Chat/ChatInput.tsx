@@ -8,13 +8,14 @@ interface ChatInputProps {
     onFileUpload: (file: File) => void;
     loading: boolean;
     placeholder?: string;
+    speechLanguage?: string;
 }
 
-export const ChatInput = ({ onSendMessage, onFileUpload, loading, placeholder = "Type a message..." }: ChatInputProps) => {
+export const ChatInput = ({ onSendMessage, onFileUpload, loading, placeholder = "Type a message...", speechLanguage = 'en-US' }: ChatInputProps) => {
     const [inputText, setInputText] = useState('');
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [dragActive, setDragActive] = useState(false);
-    const { isListening, transcript, startListening, stopListening, resetTranscript } = useSpeechRecognition();
+    const { isListening, transcript, startListening, stopListening, resetTranscript } = useSpeechRecognition(speechLanguage);
 
     useEffect(() => {
         if (isListening && transcript) {

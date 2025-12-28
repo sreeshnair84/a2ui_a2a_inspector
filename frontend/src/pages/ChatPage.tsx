@@ -5,8 +5,9 @@ import { Sidebar } from '../components/Sidebar';
 import { ChatInput } from '../components/Chat/ChatInput';
 import { MessageList } from '../components/Chat/MessageList';
 import { apiClient } from '../services/api';
-import { Menu, Settings, Check, X, Edit2 } from 'lucide-react';
+import { Menu, Settings, Check, X, Edit2, Mic, Volume2 } from 'lucide-react';
 import { cn } from '../utils';
+import { useTextToSpeech } from '../hooks/useTextToSpeech';
 
 export default function ChatPage() {
     // Hooks
@@ -20,7 +21,11 @@ export default function ChatPage() {
     // Local State
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [showSettings, setShowSettings] = useState(false);
+    const [talkBackEnabled, setTalkBackEnabled] = useState(false);
     const [agentUrl, setAgentUrl] = useState('http://localhost:8001');
+    const [speechLanguage, setSpeechLanguage] = useState('en-US');
+    const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>('');
+    const { voices } = useTextToSpeech();
 
     // Effects
     useEffect(() => {
@@ -90,7 +95,9 @@ export default function ChatPage() {
                 currentSessionId={currentSessionId}
                 onSelectSession={selectSession}
                 onCreateSession={() => createNewSession()}
-                onDeleteSession={deleteSession}
+                onDeleteSession={(id) => {
+                    deleteSession(id);
+                }}
                 isOpen={sidebarOpen}
                 className="shrink-0 z-20 absolute md:relative h-full"
             />
@@ -162,7 +169,26 @@ export default function ChatPage() {
                                         />
                                     </div>
                                     <div className="pt-2">
-                                        <p className="text-xs text-gray-400 leading-relaxed">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Talk Back</span>
+                                            <button
+                                                onClick={() => setTalkBackEnabled(!talkBackEnabled)}
+                                                className={cn(
+                                                    "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+                                                    talkBackEnabled ? "bg-indigo-600" : "bg-gray-200"
+                                                )}
+                                            >
+                                                <span className={cn(
+                                                    "inline-block h-3 w-3 transform rounded-full bg-white transition-transform",
+                                                    talkBackEnabled ? "translate-x-5" : "translate-x-1"
+                                                )} />
+                                            </button>
+                                        </div>
+                                        <p className="text-xs text-gray-400 leading-relaxed mb-4">
+                                            Automatically read agent responses aloud.
+                                        </p>
+
+                                        <p className="text-xs text-gray-400 leading-relaxed pt-2 border-t border-gray-100">
                                             Point this to your running A2A Agent instance. Ensure CORS is enabled if running on a different port.
                                         </p>
                                     </div>
@@ -174,13 +200,19 @@ export default function ChatPage() {
 
                 {/* Chat Area */}
                 <div className="flex-1 flex flex-col overflow-hidden relative bg-gradient-to-b from-gray-50 to-white">
-                    <MessageList components={components} onAction={handleAction} />
+                    <MessageList
+                        components={components}
+                        onAction={handleAction}
+                        talkBackEnabled={talkBackEnabled}
+                        selectedVoiceURI={selectedVoiceURI}
+                    />
 
                     <div className="shrink-0 z-10 bg-gradient-to-t from-white via-white to-transparent pt-4 pb-2">
                         <ChatInput
                             onSendMessage={handleSendMessage}
                             onFileUpload={handleFileUpload}
                             loading={chatLoading}
+                            speechLanguage={speechLanguage}
                         />
                     </div>
                 </div>

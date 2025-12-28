@@ -5,9 +5,11 @@ import { A2UISurface } from '../A2UISurface';
 interface MessageListProps {
     components: any[];
     onAction?: (action: any) => void;
+    talkBackEnabled?: boolean;
+    selectedVoiceURI?: string;
 }
 
-export const MessageList = ({ components, onAction }: MessageListProps) => {
+export const MessageList = ({ components, onAction, talkBackEnabled, selectedVoiceURI }: MessageListProps) => {
     const bottomRef = useRef<HTMLDivElement>(null);
 
     // Auto-scroll
@@ -33,6 +35,8 @@ export const MessageList = ({ components, onAction }: MessageListProps) => {
                     id="main"
                     components={components}
                     onAction={onAction}
+                    talkBackEnabled={talkBackEnabled}
+                    selectedVoiceURI={selectedVoiceURI}
                     className="w-full"
                 />
 

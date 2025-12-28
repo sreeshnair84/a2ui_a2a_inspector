@@ -20,6 +20,11 @@ interface A2UISurfaceProps {
      * Callback for user actions
      */
     onAction?: (action: any) => void;
+    /**
+     * If true, new agent messages will automatically be read aloud.
+     */
+    talkBackEnabled?: boolean;
+    selectedVoiceURI?: string;
 }
 
 // Extend JSX IntrinsicElements to avoid TS errors for the hidden element
@@ -38,7 +43,9 @@ export const A2UISurface: React.FC<A2UISurfaceProps> = ({
     id = 'main',
     className,
     components = [],
-    onAction
+    onAction,
+    talkBackEnabled = false,
+    selectedVoiceURI
 }) => {
     const surfaceRef = useRef<HTMLElement>(null);
 
@@ -55,6 +62,8 @@ export const A2UISurface: React.FC<A2UISurfaceProps> = ({
                         key={comp.id}
                         text={comp.text}
                         role={comp.metadata?.role || 'agent'}
+                        autoSpeak={talkBackEnabled}
+                        selectedVoiceURI={selectedVoiceURI}
                     />
                 );
 
