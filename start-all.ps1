@@ -50,7 +50,7 @@ Write-Host "  Agent:    http://localhost:8001" -ForegroundColor White
 Write-Host "  Backend:  http://localhost:8000" -ForegroundColor White
 Write-Host "  Frontend: http://localhost:5173" -ForegroundColor White
 Write-Host ""
-Write-Host "Agent Card: http://localhost:8001/.well-known/agent.json" -ForegroundColor Cyan
+Write-Host "Agent Card: http://localhost:8001/.well-known/agent-card.json" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Press any key to exit (this will NOT stop the services)..." -ForegroundColor Yellow
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")

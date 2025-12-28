@@ -1,6 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { cn } from '../../utils';
-import { User, Bot, AlertCircle, ThumbsUp, ThumbsDown, Volume2, StopCircle } from 'lucide-react';
+import { User, Bot, AlertCircle, ThumbsUp, ThumbsDown, Volume2, StopCircle, Terminal } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
@@ -14,11 +14,13 @@ interface MessageBubbleProps {
     onFeedback?: (type: 'up' | 'down') => void;
     autoSpeak?: boolean;
     selectedVoiceURI?: string;
+    usageHint?: string;
 }
 
-export const MessageBubble = ({ text, role, error, className, onFeedback, autoSpeak = false, selectedVoiceURI }: MessageBubbleProps) => {
+export const MessageBubble = ({ text, role, error, className, onFeedback, autoSpeak = false, selectedVoiceURI, usageHint }: MessageBubbleProps) => {
     const isUser = role === 'user';
     const isError = !!error;
+    const isTool = usageHint === 'code'; // Treat 'code' hint as a Tool Call
     const { speak, stop, isSpeaking } = useTextToSpeech();
     const hasSpokenOnMount = useRef(false);
 
@@ -35,14 +37,14 @@ export const MessageBubble = ({ text, role, error, className, onFeedback, autoSp
 
     // Auto-Speak Logic
     useEffect(() => {
-        if (autoSpeak && !isUser && !isError && !hasSpokenOnMount.current && content) {
+        if (autoSpeak && !isUser && !isError && !isTool && !hasSpokenOnMount.current && content) {
             // Check if content is substantial enough to speak (not just "thinking...")
             if (content.length > 2) {
                 speak(content, selectedVoiceURI);
                 hasSpokenOnMount.current = true;
             }
         }
-    }, [autoSpeak, content, isUser, isError, speak, selectedVoiceURI]);
+    }, [autoSpeak, content, isUser, isError, isTool, speak, selectedVoiceURI]);
 
     const handleSpeak = () => {
         if (isSpeaking) {
@@ -61,9 +63,15 @@ export const MessageBubble = ({ text, role, error, className, onFeedback, autoSp
             {/* Avatar */}
             <div className={cn(
                 "w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-sm border border-white",
-                isUser ? "bg-indigo-600 text-white" : isError ? "bg-red-100 text-red-600" : "bg-white text-indigo-600 border-gray-100"
+                isUser ? "bg-indigo-600 text-white" :
+                    isError ? "bg-red-100 text-red-600" :
+                        isTool ? "bg-slate-800 text-blue-400" : // Tool Avatar Style
+                            "bg-white text-indigo-600 border-gray-100"
             )}>
-                {isUser ? <User size={16} /> : isError ? <AlertCircle size={16} /> : <Bot size={16} />}
+                {isUser ? <User size={16} /> :
+                    isError ? <AlertCircle size={16} /> :
+                        isTool ? <Terminal size={14} /> : // Tool Icon
+                            <Bot size={16} />}
             </div>
 
             {/* Bubble */}
@@ -74,18 +82,27 @@ export const MessageBubble = ({ text, role, error, className, onFeedback, autoSp
                         ? "bg-indigo-600 text-white rounded-tr-sm shadow-indigo-500/20"
                         : isError
                             ? "bg-red-50 text-red-800 border border-red-100 rounded-tl-sm"
-                            : "bg-white text-gray-800 border border-gray-100 rounded-tl-sm shadow-gray-200/50"
+                            : isTool
+                                ? "bg-slate-900 text-blue-100 border border-slate-700 rounded-tl-sm font-mono text-xs" // Tool Bubble Style
+                                : "bg-white text-gray-800 border border-gray-100 rounded-tl-sm shadow-gray-200/50"
                 )}>
                     {isError && <p className="font-bold text-xs mb-1 uppercase tracking-wider text-red-500">Error</p>}
+                    {isTool && <p className="font-bold text-xs mb-2 uppercase tracking-wider text-blue-400 flex items-center gap-2">
+                        <Terminal size={10} /> Tool Execution
+                    </p>}
 
-                    <div className={cn("prose prose-sm break-words max-w-none", isUser ? "prose-invert" : "prose-slate")}>
+                    <div className={cn("prose prose-sm break-words max-w-none",
+                        isUser ? "prose-invert" :
+                            isTool ? "prose-invert" : // Dark mode prose for tools
+                                "prose-slate"
+                    )}>
                         <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
                             {content}
                         </ReactMarkdown>
                     </div>
 
-                    {/* TTS Button (Agent only) */}
-                    {!isUser && !isError && (
+                    {/* TTS Button (Agent only, skip tools for now) */}
+                    {!isUser && !isError && !isTool && (
                         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
                                 onClick={handleSpeak}
@@ -102,7 +119,7 @@ export const MessageBubble = ({ text, role, error, className, onFeedback, autoSp
                 </div>
 
                 {/* Feedback Actions (Only for Agent) */}
-                {!isUser && !isError && (
+                {!isUser && !isError && !isTool && (
                     <div className="flex items-center gap-2 mt-2 ml-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                         <button onClick={() => onFeedback?.('up')} className="p-1 text-gray-400 hover:text-green-500 bg-gray-50/50 rounded hover:bg-white transition-all"><ThumbsUp size={14} /></button>
                         <button onClick={() => onFeedback?.('down')} className="p-1 text-gray-400 hover:text-red-500 bg-gray-50/50 rounded hover:bg-white transition-all"><ThumbsDown size={14} /></button>

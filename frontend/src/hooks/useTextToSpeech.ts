@@ -48,6 +48,7 @@ export function useTextToSpeech() {
     return {
         isSpeaking,
         speak,
-        stop
+        stop,
+        voices
     };
 }

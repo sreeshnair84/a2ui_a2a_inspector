@@ -19,7 +19,7 @@ export const ChatInput = ({ onSendMessage, onFileUpload, loading, placeholder = 
 
     useEffect(() => {
         if (isListening && transcript) {
-            setInputText(prev => {
+            setInputText((_prev: any) => {
                 // To avoid duplication if speech recognition sends partials
                 // we might need a smarter diff, but for now simple replacement or append
                 // Let's assume transcript is the *current session's* full transcript

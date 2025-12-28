@@ -22,7 +22,7 @@ python main.py
 ## Features
 
 ### A2A Protocol Compliance
-- ✅ **Agent Card** - Exposed at `/.well-known/agent.json`
+- ✅ **Agent Card** - Exposed at `/.well-known/agent-card.json`
 - ✅ **Run Endpoint** - Standard `/run` endpoint for A2A protocol
 - ✅ **Streaming Support** - SSE streaming for progressive responses
 - ✅ **Task Management** - InMemoryTaskStore for task lifecycle
@@ -43,7 +43,7 @@ python main.py
 
 ```powershell
 # Test agent card (discovery)
-curl http://localhost:8001/.well-known/agent.json
+curl http://localhost:8001/.well-known/agent-card.json
 
 # Test /run endpoint (A2A protocol)
 curl -X POST http://localhost:8001/run \

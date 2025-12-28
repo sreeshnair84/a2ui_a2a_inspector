@@ -2,7 +2,7 @@
 Configuration management for the A2A Host backend.
 """
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -15,9 +15,24 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     
     # LLM Configuration
-    # gemini_api_key is required, no default
-    gemini_api_key: str 
-    llm_model: str = "gemini-2.0-flash-exp"
+    # gemini_api_key is required for Gemini models
+    gemini_api_key: Optional[str] = None
+    
+    # Cohere Configuration
+    cohere_api_key: Optional[str] = None
+    
+    # Azure Configuration
+    azure_api_key: Optional[str] = None
+    azure_api_base: Optional[str] = None
+    azure_api_version: Optional[str] = "2024-02-15-preview"
+    azure_deployment: Optional[str] = None
+    
+    # Default Model (Cohere)
+    llm_model: str = "cohere/command-a-03-2025"
+    
+    # A2UI Generation
+    use_llm_for_a2ui: bool = True
+    a2ui_generation_model: str = "cohere/command-a-03-2025"
     
     # File Storage
     upload_dir: str = "./uploads"
@@ -32,6 +47,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"
 
 
 # Global settings instance

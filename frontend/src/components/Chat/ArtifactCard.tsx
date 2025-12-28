@@ -10,7 +10,7 @@ interface ArtifactCardProps {
     url?: string;      // For link artifacts
 }
 
-export const ArtifactCard = ({ title, type = 'file', content, language, url }: ArtifactCardProps) => {
+export const ArtifactCard = ({ title, content, url }: ArtifactCardProps) => {
     const [copied, setCopied] = React.useState(false);
 
     const handleCopy = () => {

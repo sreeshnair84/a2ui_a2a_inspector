@@ -14,17 +14,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from datetime import datetime
-from core.a2a_host import A2AHost
+from core.a2a_host import HostAgent
 from auth.token_manager import get_current_user
 import uuid
 from sqlmodel import Session, select, desc
 from core.database import create_db_and_tables, get_session, engine
 from models.session import Session as ChatSession, Message
 
+# Configure logging
+from core.logger import configure_logging, get_logger
+import sys
+
+logger = get_logger(__name__)
+
 app = FastAPI(title="A2A Host Server", version="1.0.0")
 
 @app.on_event("startup")
 def on_startup():
+    configure_logging(log_file="backend.log")
     create_db_and_tables()
 
 # CORS middleware for frontend
@@ -36,8 +43,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize A2A Host
-a2a_host = A2AHost()
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Global exception handler to catch unhandled errors, log traceback, 
+    and return sanitized response to client.
+    """
+    logger.exception(f"Unhandled exception processing request: {request.url}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred. Please contact support."}
+    )
+
+# Initialize Host Agent
+host_agent = HostAgent()
 
 # Store for push notification callbacks
 push_callbacks: Dict[str, Any] = {}
@@ -48,7 +69,10 @@ class ChatRequest(BaseModel):
     message: str
     agent_url: str  # User provides the remote agent URL
     session_id: str = "default"
+    agent_url: str  # User provides the remote agent URL
+    session_id: str = "default"
     use_push: bool = False  # Whether to use push notifications
+    model: Optional[str] = "cohere" # Default to Cohere (was gemini)
 
 
 class ChatResponse(BaseModel):
@@ -79,14 +103,19 @@ class LoginResponse(BaseModel):
 @app.post("/auth/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
     """
-    Demo login endpoint - accepts any credentials for testing.
-    
-    In production, this should validate against a real user database.
+    Demo login endpoint - accepts specific admin credentials for testing.
     """
     from auth.token_manager import create_access_token
     from datetime import timedelta
     
-    # For demo: accept any credentials
+    # Enforce specific credentials
+    print(f"DEBUG LOGIN: Received email='{request.email}', password='{request.password}'")
+    if request.email != "admin@example.com" or request.password != "password123":
+        raise HTTPException(
+            status_code=401, 
+            detail="Invalid credentials. Use admin@example.com / password123"
+        )
+    
     access_token = create_access_token(
         data={"sub": request.email},
         expires_delta=timedelta(hours=24)
@@ -128,15 +157,18 @@ async def chat(request: ChatRequest, req: Request):
         
         # Call remote agent via A2A protocol
         # The A2AHost automatically selects the best mode
-        agent_response = await a2a_host.call_agent(
+        # Call remote agent via Host Agent (which might use tools)
+        agent_response = await host_agent.call_agent(
             agent_url=request.agent_url,
             message=request.message,
             session_id=request.session_id,
             webhook_url=webhook_url,
+            thread_id=request.session_id, # Pass session_id as thread_id
+            metadata={"model": request.model}
         )
         
         # Convert to A2UI JSON
-        a2ui_response = a2a_host.convert_to_a2ui(agent_response)
+        a2ui_response = host_agent.convert_to_a2ui(agent_response)
         
         return ChatResponse(
             surfaceUpdate=a2ui_response.get("surfaceUpdate"),
@@ -163,6 +195,8 @@ async def chat_stream(request: ChatRequest):
     # Generate session ID if not provided (should ideally be provided)
     session_id = request.session_id or str(uuid.uuid4())
     
+    print(f"INFO: Backend received streaming request. Session: {session_id}, Model: {request.model}")
+    
     # Persist User Message
     with Session(engine) as db_session:
         # Check if session exists (create if not - auto-creation logic)
@@ -188,21 +222,61 @@ async def chat_stream(request: ChatRequest):
         accumulated_envelopes = []
         
         try:
-            # Stream from remote agent via A2A protocol
-            async for chunk in a2a_host.stream_agent(
+            print(f"INFO: Connecting to A2A Agent at {request.agent_url}...")
+            # Stream from remote agent via Host Agent orchestration
+            # Accumulate Text for Rich UI Generation
+            accumulated_text = ""
+            last_message_id = None
+            
+            async for chunk in host_agent.stream_agent(
                 agent_url=request.agent_url,
                 message=request.message,
                 session_id=session_id,
+                thread_id=session_id, # Pass session_id as thread_id
+                metadata={"model": request.model}
             ):
-                # Convert chunk to A2UI format
-                a2ui_chunk = a2a_host.convert_to_a2ui(chunk)
+                # Convert chunk to A2UI format (Simple Text Streaming)
+                a2ui_chunk = host_agent.convert_to_a2ui(chunk)
                 
+                # Extract text for accumulation
+                if "output" in chunk and "text" in chunk["output"]:
+                    accumulated_text += chunk["output"]["text"]
+                
+                # Extract message_id from the Text component to reuse it later
+                # A2UI Envelope structure: {"surfaceUpdate": {"components": [{"id": "msg_xxx", ...}]}}
+                try:
+                    comps = a2ui_chunk.get("surfaceUpdate", {}).get("components", [])
+                    for comp in comps:
+                        # Find the Text component ID
+                        cid = comp.get("id", "")
+                        if cid.startswith("msg_") or cid.startswith("gen_"):
+                            last_message_id = cid
+                            break
+                    if not last_message_id and "message_id" in a2ui_chunk: # fallback
+                         last_message_id = a2ui_chunk["message_id"]
+                except:
+                    pass
+
                 # Accumulate envelopes for persistence
                 accumulated_envelopes.append(a2ui_chunk)
 
                 # Send as SSE event
                 yield f"data: {json.dumps(a2ui_chunk)}\n\n"
             
+            # --- Stream Finished ---
+            
+            # Try to generate Rich UI (Forms, Tables) from the complete response
+            if accumulated_text:
+                try:
+                    logger.info(f"Stream finished. Attempting Rich UI generation for msg={last_message_id}...")
+                    rich_envelope = await host_agent.generate_rich_ui(accumulated_text, message_id=last_message_id)
+                    
+                    yield f"data: {json.dumps(rich_envelope)}\n\n"
+                    accumulated_envelopes.append(rich_envelope)
+                    
+                except Exception as e:
+                    logger.error(f"Post-stream Rich UI generation failed: {e}")
+
             # Send completion event
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
             
@@ -218,10 +292,12 @@ async def chat_stream(request: ChatRequest):
                     db_session.commit()
             
         except Exception as e:
-            # Send error event
+            # Log full traceback
+            logger.exception("Error in streaming response")
+            # Send sanitized error event
             error_data = {
                 "type": "error",
-                "message": str(e)
+                "message": "An unexpected error occurred during streaming." 
             }
             yield f"data: {json.dumps(error_data)}\n\n"
     
@@ -264,7 +340,7 @@ async def get_webhook_result(session_id: str):
     if session_id in push_callbacks:
         result = push_callbacks[session_id]
         # Convert to A2UI
-        a2ui_response = a2a_host.convert_to_a2ui(result)
+        a2ui_response = host_agent.convert_to_a2ui(result)
         return a2ui_response
     
     return {"status": "pending"}
@@ -342,8 +418,18 @@ async def upload_file(file: UploadFile = File(...)):
     """
     Handle file uploads.
     Saves file to upload_dir and returns metadata.
+    Enforces allowed file extensions.
     """
     try:
+        # Validate file extension
+        ALLOWED_EXTENSIONS = {'.txt', '.pdf', '.png', '.jpg', '.jpeg', '.csv', '.json', '.md'}
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"File type not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+            )
+
         # Ensure upload directory exists
         os.makedirs(settings.upload_dir, exist_ok=True)
         
@@ -363,44 +449,12 @@ async def upload_file(file: UploadFile = File(...)):
             "size": os.path.getsize(file_path),
             "content_type": file.content_type
         }
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-
+if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-from fastapi import UploadFile, File
-import shutil
-import os
-from config import settings
-
-@app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
-    """
-    Handle file uploads.
-    Saves file to upload_dir and returns metadata.
-    """
-    try:
-        # Ensure upload directory exists
-        os.makedirs(settings.upload_dir, exist_ok=True)
-        
-        # Safe filename
-        filename = f"{uuid.uuid4()}_{file.filename}"
-        file_path = os.path.join(settings.upload_dir, filename)
-        
-        # Save file
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        return {
-            "status": "success",
-            "filename": file.filename,
-            "saved_name": filename,
-            "path": file_path,
-            "size": os.path.getsize(file_path),
-            "content_type": file.content_type
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))

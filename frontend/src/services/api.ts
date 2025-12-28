@@ -11,6 +11,7 @@ export interface ChatRequest {
     agent_url: string;
     session_id: string;
     use_push?: boolean;
+    model?: string;
 }
 
 // Helper to handle API responses and auto-logout on 401
@@ -30,7 +31,7 @@ export const apiClient = {
     /**
      * Send a text message to the chat API
      */
-    async sendMessage(text: string, sessionId: string = 'default', agentUrl: string = 'http://localhost:8001'): Promise<A2UIResponse> {
+    async sendMessage(text: string, sessionId: string = 'default', agentUrl: string = 'http://localhost:8001', model: string = 'gemini'): Promise<A2UIResponse> {
         const token = authService.getToken();
         if (!token) {
             throw new Error('Not authenticated');
@@ -40,7 +41,8 @@ export const apiClient = {
             message: text,
             agent_url: agentUrl,
             session_id: sessionId,
-            use_push: false
+            use_push: false,
+            model
         };
 
         const response = await fetch(`${API_BASE}/api/chat`, {
@@ -59,7 +61,7 @@ export const apiClient = {
     /**
      * Send a message and stream the response via SSE over POST
      */
-    async *streamMessage(text: string, sessionId: string = 'default', agentUrl: string = 'http://localhost:8001'): AsyncGenerator<any, void, unknown> {
+    async *streamMessage(text: string, sessionId: string = 'default', agentUrl: string = 'http://localhost:8001', model: string = 'gemini'): AsyncGenerator<any, void, unknown> {
         const token = authService.getToken();
         if (!token) {
             throw new Error('Not authenticated');
@@ -69,7 +71,8 @@ export const apiClient = {
             message: text,
             agent_url: agentUrl,
             session_id: sessionId,
-            use_push: false
+            use_push: false,
+            model
         };
 
         const response = await fetch(`${API_BASE}/api/chat/stream`, {

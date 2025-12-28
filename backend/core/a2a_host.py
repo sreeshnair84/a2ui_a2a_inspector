@@ -12,100 +12,94 @@ Supports ALL A2A capabilities:
 from a2a.client.card_resolver import A2ACardResolver
 from a2a.types import (
     Message,
-    MessageSendConfiguration,
     MessageSendParams,
     Role,
     SendMessageRequest,
     SendStreamingMessageRequest,
     TextPart,
     Task,
-    Part
 )
 from .remote_agent_connection import RemoteAgentConnections
-from typing import Dict, Any, Optional, Union, List
-import asyncio
+from typing import Dict, Any, Optional
 import httpx
 import uuid
-import logging
+import json
+from core.logger import get_logger
+from .a2ui_generator import get_generator
+from config import settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-class A2AHost:
+class HostAgent:
     """
-    A2A Host that calls remote agents using RemoteAgentConnections.
+    Host Agent that acts as a direct proxy to remote A2A agents.
     
-    Supports all A2A protocol capabilities based on agent card:
-    - Streaming via SSE
-    - Polling for long-running tasks
-    - Push notifications via webhooks
-    
-    The UI is completely unaware of agents - it only knows A2UI JSON.
-    This host translates between A2UI (frontend) and A2A (agents).
+    It calls the remote A2A agent using the SDK and converts ALL outputs 
+    into A2UI v0.8 format for the frontend.
     """
     
     def __init__(self):
         """Initialize A2A Host with connection cache"""
         self.connections: Dict[str, RemoteAgentConnections] = {}
+        logger.info("HostAgent initialized.")
     
     async def get_or_create_connection(self, agent_url: str) -> RemoteAgentConnections:
         """
         Get existing RemoteAgentConnections or create new one for agent URL.
         """
         if agent_url not in self.connections:
-            # Create ephemeral client for resolution
-            async with httpx.AsyncClient() as http_client:
-                resolver = A2ACardResolver(
-                    httpx_client=http_client,
-                    base_url=agent_url
-                )
-                
-                # Fetch agent card
-                agent_card = await resolver.get_agent_card()
-                
-            # Create connection (it manages its own client)
-            conn = RemoteAgentConnections(agent_card, agent_url)
-            self.connections[agent_url] = conn
+            logger.info(f"Creating new connection for agent: {agent_url}")
+            try:
+                # Create ephemeral client for resolution
+                async with httpx.AsyncClient() as http_client:
+                    resolver = A2ACardResolver(
+                        httpx_client=http_client,
+                        base_url=agent_url
+                    )
+                    
+                    # Fetch agent card
+                    agent_card = await resolver.get_agent_card()
+                    logger.info(f"Resolved agent card: {agent_card.name}")
+                    
+                # Create connection (it manages its own client)
+                conn = RemoteAgentConnections(agent_card, agent_url)
+                self.connections[agent_url] = conn
+            except Exception as e:
+                logger.error(f"Failed to resolve/connect to agent at {agent_url}: {e}")
+                raise
         
         return self.connections[agent_url]
-    
-    def get_agent_capabilities(self, agent_url: str) -> Dict[str, bool]:
-        """
-        Get agent capabilities from cached connection.
-        """
-        if agent_url in self.connections:
-            agent_card = self.connections[agent_url].get_agent()
-            # Return discovered capabilities. 
-            # Ideally inspect agent_card.capabilities (AgentCapabilities object)
-            # For now return True for streaming as most A2A agents support it.
-            return {
-                "streaming": True, 
-                "polling": True,
-                "push": False,
-            }
-        return {"streaming": False, "polling": False, "push": False}
     
     async def call_agent(
         self,
         agent_url: str,
         message: str,
         session_id: str,
-        webhook_url: Optional[str] = None
+        webhook_url: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Call remote A2A agent.
+        Call remote A2A agent (Polling mode).
         """
+        logger.info(f"Calling agent {agent_url} (polling) for session {session_id}")
         conn = await self.get_or_create_connection(agent_url)
+        
+        # Ensure metadata exists and add IDs
+        metadata = metadata or {}
+        metadata["session_id"] = session_id
+        if thread_id:
+            metadata["thread_id"] = thread_id
         
         # Construct Message
         message_obj = Message(
             role=Role.user,
             parts=[TextPart(text=message)],
-            message_id=str(uuid.uuid4())
+            message_id=str(uuid.uuid4()),
+            metadata=metadata
         )
         
         params = MessageSendParams(message=message_obj)
-        
-        # Use simple send_message for now (polling/single request)
         
         request = SendMessageRequest(
             id=str(uuid.uuid4()),
@@ -118,73 +112,81 @@ class A2AHost:
             if hasattr(response.root, 'result'):
                 return self._process_response(response.root.result)
             else:
-                # Handle error or unexpected response
-                 logger.error(f"Agent response error: {response.root}")
+                 logger.error(f"Agent response error or empty: {response.root}")
                  raise Exception(f"Agent response error: {response.root}")
             
         except Exception as e:
-            logger.error(f"Error calling agent: {e}")
+            logger.error(f"Error calling agent: {e}", exc_info=True)
             raise
 
-    async def _call_with_push(self, *args, **kwargs):
-        # Implementation skipped for brevity/safet, fallback to polling if called
-        pass
-    
     async def stream_agent(
         self,
         agent_url: str,
         message: str,
-        session_id: str
+        session_id: str,
+        thread_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
     ):
         """
-        Stream responses from remote A2A agent using SSE.
+        Stream responses directly from remote agent.
         """
-        conn = await self.get_or_create_connection(agent_url)
-        
-        # Construct Message
-        message_obj = Message(
-            role=Role.user,
-            parts=[TextPart(text=message)],
-            message_id=str(uuid.uuid4())
-        )
-        
-        params = MessageSendParams(message=message_obj)
-        
-        request = SendStreamingMessageRequest(
-            id=str(uuid.uuid4()),
-            params=params
-        )
-        
+        logger.info(f"Streaming from agent {agent_url} for session {session_id}")
         try:
+            conn = await self.get_or_create_connection(agent_url)
+            
+            # Ensure metadata exists and add IDs
+            metadata = metadata or {}
+            metadata["session_id"] = session_id
+            if thread_id:
+                metadata["thread_id"] = thread_id
+            
+            # Construct Message
+            message_obj = Message(
+                role=Role.user,
+                parts=[TextPart(text=message)],
+                message_id=str(uuid.uuid4()),
+                metadata=metadata
+            )
+            
+            params = MessageSendParams(message=message_obj)
+            
+            request = SendStreamingMessageRequest(
+                id=str(uuid.uuid4()),
+                params=params
+            )
+            
+            chunk_count = 0
             async for chunk in conn.stream_message(request):
-                # chunk is SendStreamingMessageResponse (RootModel)
+                chunk_count += 1
                 
                 # Check for error in chunk
                 if hasattr(chunk.root, 'error') and chunk.root.error:
-                     logger.error(f"Streaming error: {chunk.root.error}")
-                     yield self.convert_error_to_a2ui(chunk.root.error)
-                     continue
+                        logger.error(f"Stream error chunk: {chunk.root.error}")
+                        yield self._process_error_to_dict(chunk.root.error)
+                        continue
 
                 # Check for result
-                if hasattr(chunk.root, 'result'):
+                if hasattr(chunk.root, 'result') and chunk.root.result:
+                    # Yield processed dict (not yet A2UI envelope)
+                    # The caller (main.py) calls convert_to_a2ui on this
                     yield self._process_response(chunk.root.result)
-                elif isinstance(chunk, (dict, str)):
-                     # Fallback if raw dict or other type
-                     yield self.convert_to_a2ui({"output": {"text": str(chunk)}})
                 else:
-                     # Unexpected type
-                     logger.warning(f"Unexpected chunk type: {type(chunk)}")
-                     yield self.convert_to_a2ui({"output": {"text": ""}})
+                    # Empty or keepalive chunk
+                    pass
+            
+            logger.info(f"Remote stream completed. Chunks received: {chunk_count}")
+
         except Exception as e:
-            logger.error(f"Exception during streaming: {e}")
-            yield self.convert_error_to_a2ui(e)
+            logger.error(f"Host Agent Stream Error: {e}", exc_info=True)
+            # Yield error so UI sees it
+            yield self._process_error_to_dict(e)
 
     def _process_response(self, result: Any) -> Dict[str, Any]:
         """Convert A2A typed result to internal dict format for conversion."""
         # result can be Task, Message, etc.
         # We need to extract text/content.
         
-        # If Message
+        # If Message (common in streaming chat)
         if isinstance(result, Message):
             text = ""
             if result.parts:
@@ -192,12 +194,16 @@ class A2AHost:
                     p = part.root # Part is RootModel
                     if isinstance(p, TextPart):
                         text += p.text
-            return {"output": {"text": text}}
+            
+            # Extract metadata and message_id
+            return {
+                "output": {"text": text}, 
+                "metadata": result.metadata or {},
+                "message_id": result.message_id
+            }
             
         # If Task
         if isinstance(result, Task):
-            # Extract status message or artifacts?
-            # For chat, we usually want the latest message.
             if result.history:
                 last_msg = result.history[-1]
                 return self._process_response(last_msg)
@@ -206,43 +212,22 @@ class A2AHost:
         # Fallback
         return {"output": {"text": str(result)}}
 
-    def convert_error_to_a2ui(self, error: Any) -> Dict[str, Any]:
-        """Convert an exception or error object to an A2UI envelope."""
-        error_text = str(error)
-        if hasattr(error, 'message'):
-            error_text = error.message
-
-        # Generate a unique ID for the error
-        error_id = f"error_{uuid.uuid4()}"
-        
-        # Create Envelope
+    def _process_error_to_dict(self, error: Any) -> Dict[str, Any]:
+        """Convert error to internal dict format."""
         return {
-            "surfaceUpdate": {
-                "components": [
-                    {
-                        "id": "root",
-                        "component": "Column",
-                        "children": {
-                            "explicitList": [error_id] 
-                        }
-                    },
-                    {
-                        "id": error_id,
-                        "component": "Text",
-                        "text": {
-                            "literalString": f"Error: {error_text}"
-                        },
-                        "usageHint": "error"
-                    }
-                ]
-            }
+             "output": {"text": f"Error: {str(error)}"},
+             "metadata": {"type": "error"}
         }
 
-    def convert_to_a2ui(self, agent_response: Dict[str, Any]) -> Dict[str, Any]:
+    def convert_to_a2ui(self, agent_response: Dict[str, Any], use_llm: bool = None) -> Dict[str, Any]:
         """
-        Convert agent response to A2UI v0.9 Envelope format.
+        Convert agent response to A2UI v0.8 Envelope format.
+        
+        A2UI v0.8 uses: {"component": {"Text": {"text": {...}}}}
+        NOT: {"component": "Text", "text": {...}}
         """
         output = agent_response.get("output", {})
+        metadata = agent_response.get("metadata", {})
         text_content = ""
         
         if "text" in output:
@@ -250,30 +235,95 @@ class A2AHost:
         else:
             text_content = str(output)
 
-        # Generate unique IDs
-        msg_id = f"msg_{uuid.uuid4()}"
+        # Use agent's message_id if available to allow updates to the same component
+        raw_msg_id = agent_response.get("message_id")
+        if raw_msg_id:
+            msg_id = f"msg_{raw_msg_id}"
+        else:
+            msg_id = f"msg_{uuid.uuid4()}"
         
+        # Determine usage hint based on metadata
+        msg_type = metadata.get("type", "text")
+        usage_hint = None 
+        
+        if msg_type == "thinking":
+            usage_hint = "subtle"
+            # logger.debug(f"Converting thinking message: {text_content[:30]}...")
+            
+        elif msg_type == "tool_call":
+            usage_hint = "code"
+            tool_name = metadata.get("tool_name", "Unknown Tool")
+            # logger.debug(f"Converting tool_call: {tool_name}")
+
+        elif msg_type == "tool_result":
+            usage_hint = "code"
+            tool_name = metadata.get("tool_name", "Unknown Tool")
+            # logger.debug(f"Converting tool_result: {tool_name}")
+        
+        elif msg_type == "error":
+             usage_hint = "error"
+             logger.warning(f"Converting error message: {text_content}")
+
+        # Build Text component properties (v0.8 format)
+        text_props = {
+            "text": {
+                "literalString": text_content
+            }
+        }
+        
+        # Add usageHint if present
+        if usage_hint:
+            text_props["usageHint"] = usage_hint
+
+        # Create component in v0.8 format: {"Text": {...properties...}}
+        component = {
+            "id": msg_id,
+            "component": {
+                "Text": text_props
+            }
+        }
+
+        # Create root Column component in v0.8 format
+        root_component = {
+            "id": "root",
+            "component": {
+                "Column": {
+                    "children": {
+                        "explicitList": [msg_id]
+                    }
+                }
+            }
+        }
+
         # Create Adjacency List Envelope
         envelope = {
             "surfaceUpdate": {
-                "components": [
-                    {
-                        "id": msg_id,
-                        "component": "Text",
-                        "text": {
-                            "literalString": text_content
-                        }
-                    },
-                    {
-                        "id": "root",
-                        "component": "Column",
-                        "children": {
-                             "explicitList": [msg_id]
-                        }
-                    }
-                ]
-            },
-            "metadata": agent_response.get("metadata", {})
+                "components": [component, root_component]
+            }
         }
             
         return envelope
+
+    async def generate_rich_ui(self, text: str, metadata: Dict[str, Any] = None, message_id: str = None) -> Dict[str, Any]:
+        """
+        Use LLM to generate rich UI components (Forms, Tables) from text.
+        """
+        logger.info(f"Generating rich UI for text: {text[:50]}...")
+        try:
+            generator = get_generator()
+            metadata = metadata or {"type": "answer", "role": "agent"}
+            
+            # Generate A2UI envelope
+            envelope = await generator.generate_envelope(text, metadata, message_id=message_id)
+            logger.info("Successfully generated rich UI envelope.")
+            return envelope
+        except Exception as e:
+            logger.error(f"Rich UI generation failed: {e}")
+            # Fallback to simple text (using same ID)
+            meta = metadata or {}
+            resp = {"output": {"text": text}, "metadata": meta}
+            if message_id: resp["message_id"] = message_id.replace("msg_", "") # strip prefix if present because convert adds it
+            
+            # Wait, convert_to_a2ui expects raw ID and adds msg_ prefix?
+            # let's check convert_to_a2ui logic
+            return self.convert_to_a2ui(resp)

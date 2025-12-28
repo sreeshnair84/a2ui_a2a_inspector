@@ -3,6 +3,8 @@ import '@a2ui/lit'; // Keeping import to ensure custom element is defined if nee
 import { MessageBubble } from './Chat/MessageBubble';
 import { ThinkingBubble } from './Chat/ThinkingBubble';
 import { ArtifactCard } from './Chat/ArtifactCard';
+import { FormCard } from './Chat/FormCard';
+
 
 /**
  * React wrapper for A2UI Surface.
@@ -53,17 +55,63 @@ export const A2UISurface: React.FC<A2UISurfaceProps> = ({
 
     const renderComponent = (compId: string): React.ReactNode => {
         const comp = components?.find(c => c.id === compId);
-        if (!comp) return null;
+        if (!comp) {
+            console.log(`Component ${compId} not found`);
+            return null;
+        }
 
-        switch (comp.component) {
+        console.log(`Rendering component ${compId}:`, comp);
+
+        // A2UI v0.8 format: component is an object like {"Text": {...props...}}
+        // Extract component type and properties
+        let componentType: string | undefined;
+        let componentProps: any = {};
+
+        if (typeof comp.component === 'string') {
+            // Legacy v0.9 format support
+            componentType = comp.component;
+            componentProps = comp;
+            console.log(`v0.9 format detected: ${componentType}`);
+        } else if (typeof comp.component === 'object') {
+            // v0.8 format: {"Text": {...props...}}
+            const keys = Object.keys(comp.component);
+            if (keys.length > 0) {
+                componentType = keys[0];
+                componentProps = comp.component[componentType];
+                console.log(`v0.8 format detected: ${componentType}`, componentProps);
+            }
+        }
+
+        if (!componentType) {
+            console.log('No component type found for:', comp);
+            return null;
+        }
+
+        switch (componentType) {
             case 'Text':
+                // Check usageHint for special types
+                const usageHint = componentProps.usageHint;
+                const textContent = componentProps.text?.literalString || componentProps.text?.markdown || componentProps.text || "";
+
+                console.log(`Text component ${comp.id}: textContent="${textContent}", usageHint="${usageHint}"`);
+
+                if (usageHint === 'subtle') {
+                    return (
+                        <ThinkingBubble
+                            key={comp.id}
+                            content={textContent}
+                        />
+                    );
+                }
+
                 return (
                     <MessageBubble
                         key={comp.id}
-                        text={comp.text}
+                        text={textContent}
                         role={comp.metadata?.role || 'agent'}
                         autoSpeak={talkBackEnabled}
                         selectedVoiceURI={selectedVoiceURI}
+                        usageHint={usageHint}
                     />
                 );
 
@@ -72,7 +120,7 @@ export const A2UISurface: React.FC<A2UISurfaceProps> = ({
                     <MessageBubble
                         key={comp.id}
                         role="system"
-                        error={comp.error}
+                        error={componentProps.error || comp.error}
                     />
                 );
 
@@ -80,7 +128,7 @@ export const A2UISurface: React.FC<A2UISurfaceProps> = ({
                 return (
                     <ThinkingBubble
                         key={comp.id}
-                        content={comp.content || comp.text}
+                        content={componentProps.content || componentProps.text || comp.content || comp.text}
                     />
                 );
 
@@ -88,26 +136,40 @@ export const A2UISurface: React.FC<A2UISurfaceProps> = ({
                 return (
                     <ArtifactCard
                         key={comp.id}
-                        title={comp.title || "Generated Artifact"}
-                        type={comp.artifactType || "file"}
-                        content={comp.content}
-                        language={comp.language}
-                        url={comp.url}
+                        title={componentProps.title || comp.title || "Generated Artifact"}
+                        type={componentProps.artifactType || comp.artifactType || "file"}
+                        content={componentProps.content || comp.content}
+                        language={componentProps.language || comp.language}
+                        url={componentProps.url || comp.url}
+                    />
+                );
+
+            case 'FormCard':
+                return (
+                    <FormCard
+                        key={comp.id}
+                        id={comp.id}
+                        content={componentProps.content || componentProps}
+                        onAction={onAction}
                     />
                 );
 
             case 'Column':
+                const columnChildren = componentProps.children?.explicitList || comp.children?.explicitList || [];
                 return (
                     <div key={comp.id} className="flex flex-col w-full gap-2">
-                        {(comp.children?.explicitList || []).map((childId: string) => renderComponent(childId))}
+                        {columnChildren.map((childId: string) => renderComponent(childId))}
                     </div>
                 );
+
             case 'Row':
+                const rowChildren = componentProps.children?.explicitList || comp.children?.explicitList || [];
                 return (
                     <div key={comp.id} className="flex flex-row gap-2 w-full flex-wrap">
-                        {(comp.children?.explicitList || []).map((childId: string) => renderComponent(childId))}
+                        {rowChildren.map((childId: string) => renderComponent(childId))}
                     </div>
                 );
+
             default:
                 // Legacy Card Support
                 if (comp.type && comp.type.endsWith('_card')) {
@@ -130,10 +192,15 @@ export const A2UISurface: React.FC<A2UISurfaceProps> = ({
     // Find root component or fallback to rendering all if no root
     const root = components?.find(c => c.id === 'root');
 
+    console.log('A2UISurface rendering. Total components:', components?.length);
+    console.log('Root component:', root);
+
     let content: React.ReactNode;
     if (root) {
+        console.log('Rendering from root');
         content = renderComponent('root');
     } else {
+        console.log('No root found, rendering all components');
         content = components?.map(c => renderComponent(c.id));
     }
 

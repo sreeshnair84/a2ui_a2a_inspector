@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { LogOut, MessageSquare, Plus, Trash2, User } from 'lucide-react';
 import { cn } from '../utils';
 import { authService } from '../services/auth';

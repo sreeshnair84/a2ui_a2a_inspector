@@ -47,4 +47,4 @@ Write-Host "`nTo start the agent, run:" -ForegroundColor Cyan
 Write-Host "  python main.py" -ForegroundColor White
 Write-Host "`nAgent will be available at:" -ForegroundColor Cyan
 Write-Host "  http://localhost:8001" -ForegroundColor White
-Write-Host "  http://localhost:8001/.well-known/agent.json" -ForegroundColor White
+Write-Host "  http://localhost:8001/.well-known/agent-card.json" -ForegroundColor White

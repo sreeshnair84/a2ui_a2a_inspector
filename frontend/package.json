@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@a2ui/lit": "^0.8.1",
+    "@headlessui/react": "^2.2.9",
+    "@heroicons/react": "^2.2.0",
     "axios": "^1.7.7",
     "clsx": "^2.1.1",
     "highlight.js": "^11.11.1",

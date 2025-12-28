@@ -5,9 +5,10 @@ import { Sidebar } from '../components/Sidebar';
 import { ChatInput } from '../components/Chat/ChatInput';
 import { MessageList } from '../components/Chat/MessageList';
 import { apiClient } from '../services/api';
-import { Menu, Settings, Check, X, Edit2, Mic, Volume2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Menu, Settings, Check, X, Edit2 } from 'lucide-react';
 import { cn } from '../utils';
-import { useTextToSpeech } from '../hooks/useTextToSpeech';
+// import { useTextToSpeech } from '../hooks/useTextToSpeech';
 
 export default function ChatPage() {
     // Hooks
@@ -16,16 +17,28 @@ export default function ChatPage() {
         isEditingTitle, editedTitle, setEditedTitle, startEditingTitle, saveTitle, cancelEditingTitle
     } = useSessions();
 
+    const navigate = useNavigate();
+
     const { components, loading: chatLoading, loadHistory, streamMessage, addOptimisticMessage, reset } = useChat();
 
     // Local State
+    // State Initialized from Settings
     const [sidebarOpen, setSidebarOpen] = useState(true);
-    const [showSettings, setShowSettings] = useState(false);
-    const [talkBackEnabled, setTalkBackEnabled] = useState(false);
-    const [agentUrl, setAgentUrl] = useState('http://localhost:8001');
-    const [speechLanguage, setSpeechLanguage] = useState('en-US');
-    const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>('');
-    const { voices } = useTextToSpeech();
+    const [talkBackEnabled, setTalkBackEnabled] = useState(localStorage.getItem('talk_back') === 'true');
+    const [agentUrl, setAgentUrl] = useState(localStorage.getItem('agent_url') || 'http://localhost:8001');
+    const [speechLanguage] = useState('en-US');
+    const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>(localStorage.getItem('voice_uri') || '');
+
+    // Reload settings on focus
+    useEffect(() => {
+        const loadSettings = () => {
+            setTalkBackEnabled(localStorage.getItem('talk_back') === 'true');
+            setAgentUrl(localStorage.getItem('agent_url') || 'http://localhost:8001');
+            setSelectedVoiceURI(localStorage.getItem('voice_uri') || '');
+        };
+        window.addEventListener('focus', loadSettings);
+        return () => window.removeEventListener('focus', loadSettings);
+    }, []);
 
     // Effects
     useEffect(() => {
@@ -49,9 +62,12 @@ export default function ChatPage() {
             }
         }
 
+
         addOptimisticMessage(text);
         try {
-            await streamMessage(text, activeSessionId!, agentUrl);
+            const model = localStorage.getItem('model_preference') || 'gemini';
+            console.log("Sending message with model:", model);
+            await streamMessage(text, activeSessionId!, agentUrl, model);
         } catch (error) {
             console.error("Stream failed:", error);
         }
@@ -150,51 +166,11 @@ export default function ChatPage() {
                     {/* Settings Toggle */}
                     <div className="relative">
                         <button
-                            onClick={() => setShowSettings(!showSettings)}
-                            className={cn("p-2 rounded-lg transition-colors", showSettings ? "bg-indigo-50 text-indigo-600" : "text-gray-400 hover:text-indigo-600 hover:bg-gray-50")}
+                            onClick={() => navigate('/settings')}
+                            className={cn("p-2 rounded-lg transition-colors", "text-gray-400 hover:text-indigo-600 hover:bg-gray-50")}
                         >
                             <Settings size={22} />
                         </button>
-
-                        {showSettings && (
-                            <div className="absolute top-12 right-0 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 p-5 z-50 animate-in fade-in zoom-in-95 duration-200">
-                                <h3 className="font-bold text-gray-800 mb-4">Configuration</h3>
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">A2A Agent URL</label>
-                                        <input
-                                            value={agentUrl}
-                                            onChange={e => setAgentUrl(e.target.value)}
-                                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                                        />
-                                    </div>
-                                    <div className="pt-2">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Talk Back</span>
-                                            <button
-                                                onClick={() => setTalkBackEnabled(!talkBackEnabled)}
-                                                className={cn(
-                                                    "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                                                    talkBackEnabled ? "bg-indigo-600" : "bg-gray-200"
-                                                )}
-                                            >
-                                                <span className={cn(
-                                                    "inline-block h-3 w-3 transform rounded-full bg-white transition-transform",
-                                                    talkBackEnabled ? "translate-x-5" : "translate-x-1"
-                                                )} />
-                                            </button>
-                                        </div>
-                                        <p className="text-xs text-gray-400 leading-relaxed mb-4">
-                                            Automatically read agent responses aloud.
-                                        </p>
-
-                                        <p className="text-xs text-gray-400 leading-relaxed pt-2 border-t border-gray-100">
-                                            Point this to your running A2A Agent instance. Ensure CORS is enabled if running on a different port.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
                     </div>
                 </header>
 

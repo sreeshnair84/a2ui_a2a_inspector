@@ -46,12 +46,17 @@ export function useChat() {
 
     // Helper to merge new components into the map, preserving history in 'root'
     const mergeComponents = useCallback((newComponents: any[], isUserMsg: boolean = false) => {
+        console.log('mergeComponents called with:', newComponents.length, 'components, isUserMsg:', isUserMsg);
+
         setComponents(prev => {
             const next = new Map(prev);
 
             // 1. Add all non-root components
             const nonRootUpdates = newComponents.filter(c => c.id !== 'root');
-            nonRootUpdates.forEach(c => next.set(c.id, c));
+            nonRootUpdates.forEach(c => {
+                console.log('Adding component:', c.id, 'type:', c.component);
+                next.set(c.id, c);
+            });
 
             // 2. Handle Root Merging
             const newRoot = newComponents.find(c => c.id === 'root');
@@ -68,7 +73,19 @@ export function useChat() {
             if (isUserMsg) {
                 newIdsToAdd = nonRootUpdates.map(c => c.id);
             } else if (newRoot) {
-                const newChildren = newRoot.children?.explicitList || [];
+                // Extract children from new root - handle both v0.8 and v0.9 formats
+                let newChildren: string[] = [];
+
+                if (typeof newRoot.component === 'object' && newRoot.component.Column) {
+                    // v0.8 format: {component: {Column: {children: {explicitList: [...]}}}}
+                    newChildren = newRoot.component.Column.children?.explicitList || [];
+                    console.log('Extracted children from v0.8 root:', newChildren);
+                } else if (newRoot.children) {
+                    // v0.9 format: {component: "Column", children: {explicitList: [...]}}
+                    newChildren = newRoot.children.explicitList || [];
+                    console.log('Extracted children from v0.9 root:', newChildren);
+                }
+
                 newIdsToAdd = newChildren;
             }
 
@@ -85,6 +102,9 @@ export function useChat() {
                 children: { explicitList: finalIds }
             });
 
+            console.log('Updated root explicitList:', finalIds);
+            console.log('Total components in map:', next.size);
+
             return next;
         });
     }, []);
@@ -94,12 +114,16 @@ export function useChat() {
             for await (const chunk of stream) {
                 if (chunk.surfaceUpdate) {
                     const components = chunk.surfaceUpdate.components || [];
+                    console.log('Processing surfaceUpdate with components:', components);
                     const isUser = components.some((c: any) => c.metadata?.role === 'user');
                     mergeComponents(components, isUser);
 
                 } else if (chunk.cards) {
-                    const cardComponents = chunk.cards.map((c: any) => ({ ...c, component: 'CardWrapper' }));
+                    // const cardComponents = chunk.cards.map((c: any) => ({ ...c, component: 'CardWrapper' }));
+                    console.log('Processing legacy cards:', chunk.cards);
                     mergeComponents(chunk.cards, true);
+                } else if (chunk.type === 'complete') {
+                    console.log('Stream complete');
                 }
             }
         } catch (error) {
@@ -120,10 +144,10 @@ export function useChat() {
         }
     }, [consumeStream]);
 
-    const streamMessage = useCallback(async (text: string, sessionId: string, agentUrl: string) => {
+    const streamMessage = useCallback(async (text: string, sessionId: string, agentUrl: string, model: string = 'gemini') => {
         setLoading(true);
         try {
-            const stream = apiClient.streamMessage(text, sessionId, agentUrl);
+            const stream = apiClient.streamMessage(text, sessionId, agentUrl, model);
             await consumeStream(stream);
         } catch (error) {
             console.error('Error sending message:', error);
@@ -150,8 +174,11 @@ export function useChat() {
         setLoading(false);
     }, []);
 
+    const componentsArray = Array.from(components.values());
+    console.log('useChat returning components array:', componentsArray.length, componentsArray);
+
     return {
-        components: Array.from(components.values()),
+        components: componentsArray,
         loading,
         mergeComponents, // Exposed if needed for other file types
         loadHistory,

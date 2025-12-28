@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { MessageBubble } from './MessageBubble';
+import { useEffect, useRef } from 'react';
+// import { MessageBubble } from './MessageBubble';
 import { A2UISurface } from '../A2UISurface';
 
 interface MessageListProps {
@@ -11,6 +11,8 @@ interface MessageListProps {
 
 export const MessageList = ({ components, onAction, talkBackEnabled, selectedVoiceURI }: MessageListProps) => {
     const bottomRef = useRef<HTMLDivElement>(null);
+
+    console.log('MessageList received components:', components.length, components);
 
     // Auto-scroll
     useEffect(() => {

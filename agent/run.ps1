@@ -20,7 +20,7 @@ if (-not (Test-Path "main.py")) {
 
 # Start the agent
 Write-Host "Starting agent on http://localhost:8001..." -ForegroundColor Cyan
-Write-Host "Agent Card: http://localhost:8001/.well-known/agent.json" -ForegroundColor Cyan
+Write-Host "Agent Card: http://localhost:8001/.well-known/agent-card.json" -ForegroundColor Cyan
 Write-Host "Press Ctrl+C to stop the agent" -ForegroundColor Yellow
 Write-Host ""
 

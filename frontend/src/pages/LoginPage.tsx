@@ -165,10 +165,10 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                             </div>
                             <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-200/60 text-center">
                                 <p className="text-sm text-gray-600">
-                                    Email: <span className="font-mono font-medium text-gray-900">alex.chen@techcorp.com</span>
+                                    Email: <span className="font-mono font-medium text-gray-900">admin@example.com</span>
                                 </p>
                                 <p className="text-sm text-gray-600 mt-1">
-                                    Password: <span className="font-mono font-medium text-gray-900">SecurePass2025!</span>
+                                    Password: <span className="font-mono font-medium text-gray-900">password123</span>
                                 </p>
                             </div>
                         </div>
