@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
-import { Paperclip, Send, Loader2, Mic, Square } from 'lucide-react';
+import { Paperclip, Send, Loader2, Mic, StopCircle } from 'lucide-react';
 import { cn } from '../../utils';
-import { useAudioRecorder } from '../../hooks/useAudioRecorder';
+import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
 
 interface ChatInputProps {
     onSendMessage: (text: string) => void;
@@ -14,14 +14,37 @@ export const ChatInput = ({ onSendMessage, onFileUpload, loading, placeholder = 
     const [inputText, setInputText] = useState('');
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [dragActive, setDragActive] = useState(false);
-    const { isRecording, startRecording, stopRecording } = useAudioRecorder();
+    const { isListening, transcript, startListening, stopListening, resetTranscript } = useSpeechRecognition();
+
+    useEffect(() => {
+        if (isListening && transcript) {
+            setInputText(prev => {
+                // To avoid duplication if speech recognition sends partials
+                // we might need a smarter diff, but for now simple replacement or append
+                // Let's assume transcript is the *current session's* full transcript
+                return transcript;
+            });
+        }
+    }, [isListening, transcript]);
 
     const handleSubmit = (e?: React.FormEvent) => {
         if (e) e.preventDefault();
-        if (!inputText.trim() || loading) return;
+        const textToSend = inputText.trim() || transcript.trim();
+        if (!textToSend || loading) return;
 
-        onSendMessage(inputText);
+        onSendMessage(textToSend);
         setInputText('');
+        resetTranscript();
+        if (isListening) stopListening();
+    };
+
+    const handleMicClick = () => {
+        if (isListening) {
+            stopListening();
+        } else {
+            setInputText(''); // Clear input for new speech
+            startListening();
+        }
     };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -29,17 +52,6 @@ export const ChatInput = ({ onSendMessage, onFileUpload, loading, placeholder = 
         if (file) {
             onFileUpload(file);
             e.target.value = '';
-        }
-    };
-
-    const handleMicClick = async () => {
-        if (isRecording) {
-            const file = await stopRecording();
-            if (file) {
-                onFileUpload(file);
-            }
-        } else {
-            startRecording();
         }
     };
 
@@ -70,7 +82,7 @@ export const ChatInput = ({ onSendMessage, onFileUpload, loading, placeholder = 
                     "relative flex items-end gap-2 p-2 bg-white rounded-3xl border shadow-lg shadow-indigo-50/50 transition-all duration-300",
                     dragActive ? "border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50" : "border-gray-200 focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-100",
                     loading && "opacity-80 grayscale-[0.5]",
-                    isRecording && "border-red-400 ring-4 ring-red-100"
+                    isListening && "border-indigo-400 ring-4 ring-indigo-100"
                 )}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
@@ -88,7 +100,7 @@ export const ChatInput = ({ onSendMessage, onFileUpload, loading, placeholder = 
                 <button
                     onClick={() => fileInputRef.current?.click()}
                     className="p-3 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all disabled:opacity-50"
-                    disabled={loading || isRecording}
+                    disabled={loading || isListening}
                     title="Upload File"
                 >
                     <Paperclip size={20} />
@@ -97,48 +109,46 @@ export const ChatInput = ({ onSendMessage, onFileUpload, loading, placeholder = 
 
                 {/* Text Area (or Input) */}
                 <input
-                    value={isRecording ? "Listening..." : inputText}
-                    onChange={e => setInputText(e.target.value)}
+                    value={isListening ? (transcript || "Listening...") : inputText}
+                    onChange={e => !isListening && setInputText(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSubmit()}
                     placeholder={loading ? "Agent is thinking..." : placeholder}
                     className={cn(
-                        "flex-1 py-3 bg-transparent border-none focus:ring-0 text-gray-800 placeholder-gray-400 resize-none max-h-32 text-base disabled:bg-transparent",
-                        isRecording && "text-red-500 animate-pulse font-medium"
+                        "flex-1 py-3 bg-transparent border-none focus:ring-0 text-gray-800 placeholder-gray-400 resize-none max-h-32 text-base disabled:bg-transparent transition-colors",
+                        isListening && "text-indigo-600 italic"
                     )}
-                    disabled={loading || isRecording}
+                    disabled={loading}
                     autoComplete="off"
                 />
 
-                {/* Mic Button */}
+                {/* Mic Button (SST) */}
                 <button
                     onClick={handleMicClick}
                     className={cn(
                         "p-3 rounded-2xl transition-all duration-200 font-medium flex items-center justify-center transform active:scale-95",
-                        isRecording
-                            ? "bg-red-500 text-white hover:bg-red-600 shadow-md shadow-red-200 animate-pulse"
-                            : "text-gray-400 hover:text-red-500 hover:bg-red-50"
+                        isListening
+                            ? "bg-red-50 text-red-500 hover:bg-red-100 animate-pulse"
+                            : "text-gray-400 hover:text-indigo-600 hover:bg-indigo-50"
                     )}
-                    disabled={loading && !isRecording}
-                    title={isRecording ? "Stop Recording" : "Voice Input"}
+                    disabled={loading}
+                    title={isListening ? "Stop Listening" : "Speak to Type"}
                 >
-                    {isRecording ? <Square size={20} fill="currentColor" /> : <Mic size={20} />}
+                    {isListening ? <StopCircle size={20} fill="currentColor" /> : <Mic size={20} />}
                 </button>
 
                 {/* Send Button */}
-                {(!isRecording) && (
-                    <button
-                        onClick={() => handleSubmit()}
-                        disabled={loading || !inputText.trim()}
-                        className={cn(
-                            "p-3 rounded-2xl transition-all duration-200 font-medium flex items-center justify-center transform active:scale-95",
-                            loading || !inputText.trim()
-                                ? "bg-gray-100 text-gray-400"
-                                : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-indigo-200"
-                        )}
-                    >
-                        {loading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} className={inputText.trim() ? "ml-0.5" : ""} />}
-                    </button>
-                )}
+                <button
+                    onClick={() => handleSubmit()}
+                    disabled={loading || (!inputText.trim() && !transcript.trim())}
+                    className={cn(
+                        "p-3 rounded-2xl transition-all duration-200 font-medium flex items-center justify-center transform active:scale-95",
+                        loading || (!inputText.trim() && !transcript.trim())
+                            ? "bg-gray-100 text-gray-400"
+                            : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md hover:shadow-indigo-200"
+                    )}
+                >
+                    {loading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} className={(inputText.trim() || transcript.trim()) ? "ml-0.5" : ""} />}
+                </button>
             </div>
 
             <div className="text-center mt-2 flex items-center justify-center gap-2">

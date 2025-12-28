@@ -1,9 +1,10 @@
 import React from 'react';
 import { cn } from '../../utils';
-import { User, Bot, AlertCircle, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { User, Bot, AlertCircle, ThumbsUp, ThumbsDown, Volume2, StopCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
-import 'highlight.js/styles/github-dark.css'; // or atom-one-dark
+import 'highlight.js/styles/github-dark.css';
+import { useTextToSpeech } from '../../hooks/useTextToSpeech';
 
 interface MessageBubbleProps {
     text?: string | { markdown: string } | { literalString: string };
@@ -16,6 +17,7 @@ interface MessageBubbleProps {
 export const MessageBubble = ({ text, role, error, className, onFeedback }: MessageBubbleProps) => {
     const isUser = role === 'user';
     const isError = !!error;
+    const { speak, stop, isSpeaking } = useTextToSpeech();
 
     // Extract content safely
     let content = "";
@@ -23,11 +25,20 @@ export const MessageBubble = ({ text, role, error, className, onFeedback }: Mess
         if (typeof text === 'string') content = text;
         else if ('markdown' in text) content = text.markdown;
         else if ('literalString' in text) content = text.literalString;
-        // Fallback for object with text
         else if ((text as any).text) content = (text as any).text;
     } else if (error) {
         content = error.message || JSON.stringify(error);
     }
+
+    const handleSpeak = () => {
+        if (isSpeaking) {
+            stop();
+        } else {
+            // Strip markdown chars roughly for speech if needed, but synthetic voices usually handle plain text well.
+            // For now passing raw text content.
+            speak(content);
+        }
+    };
 
     return (
         <div className={cn(
@@ -46,7 +57,7 @@ export const MessageBubble = ({ text, role, error, className, onFeedback }: Mess
             {/* Bubble */}
             <div className="flex flex-col max-w-[85%] md:max-w-[75%]">
                 <div className={cn(
-                    "px-6 py-4 rounded-3xl shadow-sm text-sm leading-relaxed overflow-hidden",
+                    "px-6 py-4 rounded-3xl shadow-sm text-sm leading-relaxed overflow-hidden relative",
                     isUser
                         ? "bg-indigo-600 text-white rounded-tr-sm shadow-indigo-500/20"
                         : isError
@@ -60,6 +71,19 @@ export const MessageBubble = ({ text, role, error, className, onFeedback }: Mess
                             {content}
                         </ReactMarkdown>
                     </div>
+
+                    {/* TTS Button (Agent only) */}
+                    {!isUser && !isError && (
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                                onClick={handleSpeak}
+                                className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-gray-100 rounded-full transition-colors"
+                                title="Read Aloud"
+                            >
+                                {isSpeaking ? <StopCircle size={14} className="text-indigo-600 animate-pulse" /> : <Volume2 size={14} />}
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Feedback Actions (Only for Agent) */}
